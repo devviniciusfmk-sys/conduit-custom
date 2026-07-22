@@ -25,6 +25,8 @@ pub struct WorkspaceResponse {
     pub id: Uuid,
     pub repository_id: Uuid,
     pub name: String,
+    pub icon: String,
+    pub color: String,
     pub branch: String,
     pub path: String,
     pub created_at: String,
@@ -39,6 +41,8 @@ impl From<Workspace> for WorkspaceResponse {
             id: ws.id,
             repository_id: ws.repository_id,
             name: ws.name,
+            icon: ws.icon,
+            color: ws.color,
             branch: ws.branch,
             path: ws.path.to_string_lossy().to_string(),
             created_at: ws.created_at.to_rfc3339(),
@@ -111,6 +115,16 @@ pub struct RenameWorkspaceRequest {
     pub name: String,
 }
 
+/// Request to update a workspace's visual identity.
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkspaceIdentityRequest {
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+}
+
+const WORKSPACE_COLORS: [&str; 6] = ["gray", "blue", "green", "orange", "purple", "red"];
+
 fn validate_workspace_name(name: &str) -> Result<&str, WebError> {
     let name = name.trim();
     if name.is_empty() {
@@ -124,6 +138,27 @@ fn validate_workspace_name(name: &str) -> Result<&str, WebError> {
         ));
     }
     Ok(name)
+}
+
+fn validate_workspace_icon(icon: &str) -> Result<&str, WebError> {
+    let icon = icon.trim();
+    let length = icon.chars().count();
+    if length == 0 || length > 8 || icon.chars().any(|character| character.is_control()) {
+        return Err(WebError::BadRequest(
+            "Workspace icon must be an emoji of 1 to 8 characters".to_string(),
+        ));
+    }
+    Ok(icon)
+}
+
+fn validate_workspace_color(color: &str) -> Result<&str, WebError> {
+    if !WORKSPACE_COLORS.contains(&color) {
+        return Err(WebError::BadRequest(format!(
+            "Workspace color must be one of: {}",
+            WORKSPACE_COLORS.join(", ")
+        )));
+    }
+    Ok(color)
 }
 
 /// List all workspaces.
@@ -228,6 +263,33 @@ pub async fn rename_workspace(
     Ok(Json(workspace.into()))
 }
 
+/// Update a workspace name, icon, and color without changing Git or session data.
+pub async fn update_workspace_identity(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateWorkspaceIdentityRequest>,
+) -> Result<Json<WorkspaceResponse>, WebError> {
+    let name = validate_workspace_name(&req.name)?;
+    let icon = validate_workspace_icon(&req.icon)?;
+    let color = validate_workspace_color(&req.color)?;
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let workspace = store
+        .update_identity(id, name, icon, color)
+        .map_err(|error| match error {
+            RenameWorkspaceError::NotFound => {
+                WebError::NotFound(format!("Workspace {} not found", id))
+            }
+            RenameWorkspaceError::Duplicate => WebError::Conflict(
+                "A workspace with this name already exists in the repository".to_string(),
+            ),
+            RenameWorkspaceError::Database(error) => WebError::Database(error),
+        })?;
+    Ok(Json(workspace.into()))
+}
+
 #[cfg(test)]
 mod rename_tests {
     use super::*;
@@ -251,6 +313,17 @@ mod rename_tests {
             Err(WebError::BadRequest(_))
         ));
         assert!(validate_workspace_name(&"é".repeat(60)).is_ok());
+    }
+
+    #[test]
+    fn validates_workspace_icons_and_colors() {
+        assert_eq!(validate_workspace_icon(" 🎬 ").unwrap(), "🎬");
+        assert!(validate_workspace_icon("").is_err());
+        assert!(validate_workspace_icon(&"🎬".repeat(9)).is_err());
+        for color in WORKSPACE_COLORS {
+            assert_eq!(validate_workspace_color(color).unwrap(), color);
+        }
+        assert!(validate_workspace_color("yellow").is_err());
     }
 }
 

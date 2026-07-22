@@ -11,6 +11,8 @@ const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS repositories (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    icon TEXT NOT NULL DEFAULT '📁',
+    color TEXT NOT NULL DEFAULT 'gray',
     base_path TEXT,
     repository_url TEXT,
     workspace_mode TEXT,
@@ -532,6 +534,35 @@ CREATE TABLE IF NOT EXISTS fork_seeds_new (
             [],
         )?;
 
+        // Migration 14: Add workspace visual identity.
+        let has_workspace_icon: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('workspaces') WHERE name='icon'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0),
+            )
+            .unwrap_or(false);
+        if !has_workspace_icon {
+            conn.execute(
+                "ALTER TABLE workspaces ADD COLUMN icon TEXT NOT NULL DEFAULT '📁'",
+                [],
+            )?;
+        }
+
+        let has_workspace_color: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('workspaces') WHERE name='color'",
+                [],
+                |row| row.get::<_, i64>(0).map(|count| count > 0),
+            )
+            .unwrap_or(false);
+        if !has_workspace_color {
+            conn.execute(
+                "ALTER TABLE workspaces ADD COLUMN color TEXT NOT NULL DEFAULT 'gray'",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -569,6 +600,36 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let _db = Database::open(db_path.clone()).unwrap();
         assert!(db_path.exists());
+    }
+
+    #[test]
+    fn test_workspace_identity_migration_adds_defaults() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("legacy.db");
+        let connection = Connection::open(&db_path).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE workspaces (
+                id TEXT PRIMARY KEY, repository_id TEXT NOT NULL, name TEXT NOT NULL,
+                branch TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL,
+                last_accessed TEXT NOT NULL, is_default INTEGER NOT NULL DEFAULT 0,
+                archived_at TEXT, archived_commit_sha TEXT
+            );
+            INSERT INTO workspaces (id, repository_id, name, branch, path, created_at, last_accessed)
+            VALUES ('workspace', 'repository', 'Legacy', 'main', '/tmp/legacy', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');",
+        ).unwrap();
+        drop(connection);
+
+        let db = Database::open(db_path).unwrap();
+        let identity: (String, String) = db
+            .with_connection(|connection| {
+                connection.query_row(
+                    "SELECT icon, color FROM workspaces WHERE id = 'workspace'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+            })
+            .unwrap();
+        assert_eq!(identity, ("📁".to_string(), "gray".to_string()));
     }
 
     #[test]

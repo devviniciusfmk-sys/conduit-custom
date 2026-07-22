@@ -18,8 +18,9 @@ async function openSettings(page: Page) {
 }
 
 test('renders workspace icon and opens identity editor', async ({ page }) => {
-  await expect(page.getByText('📁', { exact: true })).toHaveClass(/text-gray-400/);
-  await expect(page.getByText('Live Jade', { exact: true }).first()).toBeVisible();
+  const workspaceLabel = page.getByText('Live Jade', { exact: true }).nth(1);
+  await expect(workspaceLabel).toHaveClass(/text-gray-400/);
+  await expect(workspaceLabel).toBeVisible();
   await openSettings(page);
   await expect(page.getByLabel('Name')).toHaveValue(workspace.name);
   await expect(page.getByRole('button', { name: 'Icon 📁' })).toHaveAttribute('aria-pressed', 'true');
@@ -54,8 +55,23 @@ test('persists name, icon, and color and updates the sidebar', async ({ page }) 
 
   expect(payload).toEqual({ name: 'Render Engine', icon: '🎬', color: 'purple' });
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByText('🎬', { exact: true })).toHaveClass(/text-purple-400/);
-  await expect(page.getByText('Render Engine', { exact: true })).toBeVisible();
+  await expect(page.getByText('Render Engine', { exact: true })).toHaveClass(/text-purple-400/);
+});
+
+test('applies red to the workspace label', async ({ page }) => {
+  await page.route(`**/api/workspaces/${workspaceId}/identity`, async (route) => {
+    const payload = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...workspace, ...(payload as object) }),
+    });
+  });
+  await openSettings(page);
+  await page.getByRole('button', { name: 'Color red' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+  await expect(page.getByText(workspace.name, { exact: true }).nth(1)).toHaveClass(/text-red-400/);
 });
 
 test('shows loading while identity is being saved', async ({ page }) => {

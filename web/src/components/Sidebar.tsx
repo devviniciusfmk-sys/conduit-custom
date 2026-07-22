@@ -113,7 +113,9 @@ function WorkspaceItem({
       <div className="ml-5 flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium">
           <span className={workspaceColorClasses[workspace.color]} aria-hidden="true">{workspace.icon}</span>
-          <span className="truncate">{workspace.name}</span>
+          <span className={cn('truncate', workspaceColorClasses[workspace.color])}>
+            {workspace.name}
+          </span>
         </span>
 
         <div className="flex shrink-0 items-center gap-2 text-xs">

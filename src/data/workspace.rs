@@ -7,6 +7,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+#[derive(Debug, thiserror::Error)]
+pub enum RenameWorkspaceError {
+    #[error("workspace not found")]
+    NotFound,
+    #[error("workspace name already exists in this repository")]
+    Duplicate,
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+}
+
 /// Data access object for Workspace operations
 #[derive(Clone)]
 pub struct WorkspaceStore {
@@ -151,6 +161,43 @@ impl WorkspaceStore {
             ],
         )?;
         Ok(())
+    }
+
+    /// Rename only the display name of a workspace.
+    pub fn rename(&self, id: Uuid, name: &str) -> Result<Workspace, RenameWorkspaceError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let repository_id: String = tx
+            .query_row(
+                "SELECT repository_id FROM workspaces WHERE id = ?1",
+                params![id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => RenameWorkspaceError::NotFound,
+                other => RenameWorkspaceError::Database(other),
+            })?;
+
+        let duplicate: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM workspaces WHERE repository_id = ?1 AND name = ?2 AND id != ?3)",
+            params![repository_id, name, id.to_string()],
+            |row| row.get(0),
+        )?;
+        if duplicate {
+            return Err(RenameWorkspaceError::Duplicate);
+        }
+
+        tx.execute(
+            "UPDATE workspaces SET name = ?2 WHERE id = ?1",
+            params![id.to_string(), name],
+        )?;
+        let workspace = tx.query_row(
+            "SELECT id, repository_id, name, branch, path, created_at, last_accessed, is_default, archived_at, archived_commit_sha FROM workspaces WHERE id = ?1",
+            params![id.to_string()],
+            Self::row_to_workspace,
+        )?;
+        tx.commit()?;
+        Ok(workspace)
     }
 
     /// Delete a workspace
@@ -329,5 +376,59 @@ mod tests {
 
         let workspaces = ws_dao.get_by_repository(repo.id).unwrap();
         assert!(workspaces.is_empty());
+    }
+
+    #[test]
+    fn rename_changes_only_name_and_preserves_sessions() {
+        let (_dir, db, repo_dao, ws_dao) = setup_db();
+        let repo = Repository::from_local_path("test-repo", PathBuf::from("/tmp/test"));
+        repo_dao.create(&repo).unwrap();
+        let ws = Workspace::new(
+            repo.id,
+            "wide-snow",
+            "root/wide-snow",
+            PathBuf::from("/tmp/wide-snow"),
+        );
+        ws_dao.create(&ws).unwrap();
+        let session_id = Uuid::new_v4();
+        db.connection().lock().unwrap().execute(
+            "INSERT INTO session_tabs (id, tab_index, workspace_id, agent_type, created_at) VALUES (?1, 0, ?2, 'codex', ?3)",
+            params![session_id.to_string(), ws.id.to_string(), Utc::now().to_rfc3339()],
+        ).unwrap();
+
+        let renamed = ws_dao.rename(ws.id, "Render Engine").unwrap();
+        assert_eq!(renamed.name, "Render Engine");
+        assert_eq!(renamed.branch, "root/wide-snow");
+        assert_eq!(renamed.path, PathBuf::from("/tmp/wide-snow"));
+        let session_workspace: String = db
+            .connection()
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT workspace_id FROM session_tabs WHERE id = ?1",
+                params![session_id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(session_workspace, ws.id.to_string());
+    }
+
+    #[test]
+    fn rename_rejects_duplicate_and_missing_workspace() {
+        let (_dir, _db, repo_dao, ws_dao) = setup_db();
+        let repo = Repository::from_local_path("test-repo", PathBuf::from("/tmp/test"));
+        repo_dao.create(&repo).unwrap();
+        let first = Workspace::new(repo.id, "first", "first", PathBuf::from("/tmp/first"));
+        let second = Workspace::new(repo.id, "second", "second", PathBuf::from("/tmp/second"));
+        ws_dao.create(&first).unwrap();
+        ws_dao.create(&second).unwrap();
+        assert!(matches!(
+            ws_dao.rename(first.id, "second"),
+            Err(RenameWorkspaceError::Duplicate)
+        ));
+        assert!(matches!(
+            ws_dao.rename(Uuid::new_v4(), "missing"),
+            Err(RenameWorkspaceError::NotFound)
+        ));
     }
 }

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::core::resolve_repo_workspace_settings;
 use crate::core::services::{ServiceError, SessionService};
-use crate::data::Workspace;
+use crate::data::{RenameWorkspaceError, Workspace};
 use crate::git::PrManager;
 use crate::util::names::{generate_branch_name, generate_workspace_name, get_git_username};
 use crate::web::error::WebError;
@@ -105,6 +105,27 @@ pub struct CreateWorkspaceRequest {
     pub is_default: bool,
 }
 
+/// Request to change a workspace display name.
+#[derive(Debug, Deserialize)]
+pub struct RenameWorkspaceRequest {
+    pub name: String,
+}
+
+fn validate_workspace_name(name: &str) -> Result<&str, WebError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WebError::BadRequest(
+            "Workspace name is required".to_string(),
+        ));
+    }
+    if name.chars().count() > 60 {
+        return Err(WebError::BadRequest(
+            "Workspace name must be 60 characters or fewer".to_string(),
+        ));
+    }
+    Ok(name)
+}
+
 /// List all workspaces.
 pub async fn list_workspaces(
     State(state): State<WebAppState>,
@@ -184,6 +205,53 @@ pub async fn get_workspace(
         .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
 
     Ok(Json(WorkspaceResponse::from(workspace)))
+}
+
+/// Rename a workspace without changing its branch, path, or sessions.
+pub async fn rename_workspace(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RenameWorkspaceRequest>,
+) -> Result<Json<WorkspaceResponse>, WebError> {
+    let name = validate_workspace_name(&req.name)?;
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let workspace = store.rename(id, name).map_err(|error| match error {
+        RenameWorkspaceError::NotFound => WebError::NotFound(format!("Workspace {} not found", id)),
+        RenameWorkspaceError::Duplicate => WebError::Conflict(
+            "A workspace with this name already exists in the repository".to_string(),
+        ),
+        RenameWorkspaceError::Database(error) => WebError::Database(error),
+    })?;
+    Ok(Json(workspace.into()))
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn validates_trim_empty_long_and_unicode_names() {
+        assert_eq!(
+            validate_workspace_name("  Render Engine  ").unwrap(),
+            "Render Engine"
+        );
+        assert_eq!(
+            validate_workspace_name("渲染引擎 🚀").unwrap(),
+            "渲染引擎 🚀"
+        );
+        assert!(matches!(
+            validate_workspace_name("   "),
+            Err(WebError::BadRequest(_))
+        ));
+        assert!(matches!(
+            validate_workspace_name(&"é".repeat(61)),
+            Err(WebError::BadRequest(_))
+        ));
+        assert!(validate_workspace_name(&"é".repeat(60)).is_ok());
+    }
 }
 
 /// Preflight archive checks for a workspace.

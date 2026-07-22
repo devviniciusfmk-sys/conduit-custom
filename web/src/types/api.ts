@@ -114,6 +114,10 @@ export interface CreateWorkspaceRequest {
   is_default?: boolean;
 }
 
+export interface RenameWorkspaceRequest {
+  name: string;
+}
+
 export interface ArchiveWorkspaceRequest {
   delete_remote?: boolean;
 }

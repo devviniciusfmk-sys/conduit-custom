@@ -6,9 +6,11 @@ import type {
   CreateRepositoryRequest,
   UpdateRepositorySettingsRequest,
   CreateWorkspaceRequest,
+  RenameWorkspaceRequest,
   CreateSessionRequest,
   UpdateSessionRequest,
   Session,
+  Workspace,
   SessionEventsQuery,
   SetDefaultModelRequest,
   AddQueueMessageRequest,
@@ -238,6 +240,25 @@ export function useCreateWorkspace(repositoryId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
       queryClient.invalidateQueries({ queryKey: queryKeys.repositoryWorkspaces(repositoryId) });
+    },
+  });
+}
+
+export function useRenameWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: RenameWorkspaceRequest }) =>
+      api.renameWorkspace(id, data),
+    onSuccess: (renamed) => {
+      queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, (previous) =>
+        previous?.map((workspace) => (workspace.id === renamed.id ? renamed : workspace))
+      );
+      queryClient.setQueryData(queryKeys.workspace(renamed.id), renamed);
+      queryClient.setQueryData<Workspace[]>(
+        queryKeys.repositoryWorkspaces(renamed.repository_id),
+        (previous) =>
+          previous?.map((workspace) => (workspace.id === renamed.id ? renamed : workspace))
+      );
     },
   });
 }

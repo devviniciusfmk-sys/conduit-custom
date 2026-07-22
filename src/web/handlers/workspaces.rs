@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::core::resolve_repo_workspace_settings;
 use crate::core::services::{ServiceError, SessionService};
-use crate::data::Workspace;
+use crate::data::{RenameWorkspaceError, Workspace};
 use crate::git::PrManager;
 use crate::util::names::{generate_branch_name, generate_workspace_name, get_git_username};
 use crate::web::error::WebError;
@@ -25,6 +25,8 @@ pub struct WorkspaceResponse {
     pub id: Uuid,
     pub repository_id: Uuid,
     pub name: String,
+    pub icon: String,
+    pub color: String,
     pub branch: String,
     pub path: String,
     pub created_at: String,
@@ -39,6 +41,8 @@ impl From<Workspace> for WorkspaceResponse {
             id: ws.id,
             repository_id: ws.repository_id,
             name: ws.name,
+            icon: ws.icon,
+            color: ws.color,
             branch: ws.branch,
             path: ws.path.to_string_lossy().to_string(),
             created_at: ws.created_at.to_rfc3339(),
@@ -103,6 +107,58 @@ pub struct CreateWorkspaceRequest {
     pub path: String,
     #[serde(default)]
     pub is_default: bool,
+}
+
+/// Request to change a workspace display name.
+#[derive(Debug, Deserialize)]
+pub struct RenameWorkspaceRequest {
+    pub name: String,
+}
+
+/// Request to update a workspace's visual identity.
+#[derive(Debug, Deserialize)]
+pub struct UpdateWorkspaceIdentityRequest {
+    pub name: String,
+    pub icon: String,
+    pub color: String,
+}
+
+const WORKSPACE_COLORS: [&str; 6] = ["gray", "blue", "green", "orange", "purple", "red"];
+
+fn validate_workspace_name(name: &str) -> Result<&str, WebError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(WebError::BadRequest(
+            "Workspace name is required".to_string(),
+        ));
+    }
+    if name.chars().count() > 60 {
+        return Err(WebError::BadRequest(
+            "Workspace name must be 60 characters or fewer".to_string(),
+        ));
+    }
+    Ok(name)
+}
+
+fn validate_workspace_icon(icon: &str) -> Result<&str, WebError> {
+    let icon = icon.trim();
+    let length = icon.chars().count();
+    if length == 0 || length > 8 || icon.chars().any(|character| character.is_control()) {
+        return Err(WebError::BadRequest(
+            "Workspace icon must be an emoji of 1 to 8 characters".to_string(),
+        ));
+    }
+    Ok(icon)
+}
+
+fn validate_workspace_color(color: &str) -> Result<&str, WebError> {
+    if !WORKSPACE_COLORS.contains(&color) {
+        return Err(WebError::BadRequest(format!(
+            "Workspace color must be one of: {}",
+            WORKSPACE_COLORS.join(", ")
+        )));
+    }
+    Ok(color)
 }
 
 /// List all workspaces.
@@ -184,6 +240,91 @@ pub async fn get_workspace(
         .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
 
     Ok(Json(WorkspaceResponse::from(workspace)))
+}
+
+/// Rename a workspace without changing its branch, path, or sessions.
+pub async fn rename_workspace(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RenameWorkspaceRequest>,
+) -> Result<Json<WorkspaceResponse>, WebError> {
+    let name = validate_workspace_name(&req.name)?;
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let workspace = store.rename(id, name).map_err(|error| match error {
+        RenameWorkspaceError::NotFound => WebError::NotFound(format!("Workspace {} not found", id)),
+        RenameWorkspaceError::Duplicate => WebError::Conflict(
+            "A workspace with this name already exists in the repository".to_string(),
+        ),
+        RenameWorkspaceError::Database(error) => WebError::Database(error),
+    })?;
+    Ok(Json(workspace.into()))
+}
+
+/// Update a workspace name, icon, and color without changing Git or session data.
+pub async fn update_workspace_identity(
+    State(state): State<WebAppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateWorkspaceIdentityRequest>,
+) -> Result<Json<WorkspaceResponse>, WebError> {
+    let name = validate_workspace_name(&req.name)?;
+    let icon = validate_workspace_icon(&req.icon)?;
+    let color = validate_workspace_color(&req.color)?;
+    let core = state.core().await;
+    let store = core
+        .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let workspace = store
+        .update_identity(id, name, icon, color)
+        .map_err(|error| match error {
+            RenameWorkspaceError::NotFound => {
+                WebError::NotFound(format!("Workspace {} not found", id))
+            }
+            RenameWorkspaceError::Duplicate => WebError::Conflict(
+                "A workspace with this name already exists in the repository".to_string(),
+            ),
+            RenameWorkspaceError::Database(error) => WebError::Database(error),
+        })?;
+    Ok(Json(workspace.into()))
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    #[test]
+    fn validates_trim_empty_long_and_unicode_names() {
+        assert_eq!(
+            validate_workspace_name("  Render Engine  ").unwrap(),
+            "Render Engine"
+        );
+        assert_eq!(
+            validate_workspace_name("渲染引擎 🚀").unwrap(),
+            "渲染引擎 🚀"
+        );
+        assert!(matches!(
+            validate_workspace_name("   "),
+            Err(WebError::BadRequest(_))
+        ));
+        assert!(matches!(
+            validate_workspace_name(&"é".repeat(61)),
+            Err(WebError::BadRequest(_))
+        ));
+        assert!(validate_workspace_name(&"é".repeat(60)).is_ok());
+    }
+
+    #[test]
+    fn validates_workspace_icons_and_colors() {
+        assert_eq!(validate_workspace_icon(" 🎬 ").unwrap(), "🎬");
+        assert!(validate_workspace_icon("").is_err());
+        assert!(validate_workspace_icon(&"🎬".repeat(9)).is_err());
+        for color in WORKSPACE_COLORS {
+            assert_eq!(validate_workspace_color(color).unwrap(), color);
+        }
+        assert!(validate_workspace_color("yellow").is_err());
+    }
 }
 
 /// Preflight archive checks for a workspace.

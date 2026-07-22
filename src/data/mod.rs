@@ -19,4 +19,4 @@ pub use models::{
 };
 pub use repository::RepositoryStore;
 pub use session_tab::SessionTabStore;
-pub use workspace::WorkspaceStore;
+pub use workspace::{RenameWorkspaceError, WorkspaceStore};

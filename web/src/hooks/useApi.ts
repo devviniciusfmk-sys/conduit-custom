@@ -6,9 +6,12 @@ import type {
   CreateRepositoryRequest,
   UpdateRepositorySettingsRequest,
   CreateWorkspaceRequest,
+  RenameWorkspaceRequest,
+  UpdateWorkspaceIdentityRequest,
   CreateSessionRequest,
   UpdateSessionRequest,
   Session,
+  Workspace,
   SessionEventsQuery,
   SetDefaultModelRequest,
   AddQueueMessageRequest,
@@ -250,6 +253,43 @@ export function useCreateWorkspace(repositoryId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
       queryClient.invalidateQueries({ queryKey: queryKeys.repositoryWorkspaces(repositoryId) });
+    },
+  });
+}
+
+export function useRenameWorkspace() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: RenameWorkspaceRequest }) =>
+      api.renameWorkspace(id, data),
+    onSuccess: (renamed) => {
+      queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, (previous) =>
+        previous?.map((workspace) => (workspace.id === renamed.id ? renamed : workspace))
+      );
+      queryClient.setQueryData(queryKeys.workspace(renamed.id), renamed);
+      queryClient.setQueryData<Workspace[]>(
+        queryKeys.repositoryWorkspaces(renamed.repository_id),
+        (previous) =>
+          previous?.map((workspace) => (workspace.id === renamed.id ? renamed : workspace))
+      );
+    },
+  });
+}
+
+export function useUpdateWorkspaceIdentity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateWorkspaceIdentityRequest }) =>
+      api.updateWorkspaceIdentity(id, data),
+    onSuccess: (updated) => {
+      const replaceWorkspace = (previous: Workspace[] | undefined) =>
+        previous?.map((workspace) => (workspace.id === updated.id ? updated : workspace));
+      queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, replaceWorkspace);
+      queryClient.setQueryData(queryKeys.workspace(updated.id), updated);
+      queryClient.setQueryData<Workspace[]>(
+        queryKeys.repositoryWorkspaces(updated.repository_id),
+        replaceWorkspace
+      );
     },
   });
 }

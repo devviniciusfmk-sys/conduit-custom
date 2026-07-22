@@ -117,25 +117,25 @@ If documentation changes aren't appearing after deployment:
 
 ## Documentation
 
-Documentation source files are in `docs/src/`. The docs use [mdBook](https://rust-lang.github.io/mdBook/).
+Documentation source files are in `docs/guide/`. The docs use [mdBook](https://rust-lang.github.io/mdBook/).
 
 ### Editing Documentation
 
-1. Edit markdown files in `docs/src/`
-2. Update `docs/src/SUMMARY.md` if adding new pages
+1. Edit markdown files in `docs/guide/`
+2. Update `docs/guide/SUMMARY.md` if adding new pages
 3. Preview locally: `cd docs && mdbook serve`
 4. Build and deploy (see above)
 
 ### Documentation Structure
 
-- `docs/src/SUMMARY.md` - Table of contents
-- `docs/src/introduction.md` - Landing page
-- `docs/src/getting-started/` - Installation, quick start, first session
-- `docs/src/concepts/` - Core concepts (agents, sessions, etc.)
-- `docs/src/configuration/` - Config file, themes, keybindings
-- `docs/src/shortcuts/` - Keyboard shortcuts reference
-- `docs/src/ui/` - UI components documentation
-- `docs/src/advanced/` - Advanced topics
+- `docs/guide/SUMMARY.md` - Table of contents
+- `docs/guide/introduction.md` - Landing page
+- `docs/guide/getting-started/` - Installation, quick start, first session
+- `docs/guide/concepts/` - Core concepts (agents, sessions, etc.)
+- `docs/guide/configuration/` - Config file, themes, keybindings
+- `docs/guide/shortcuts/` - Keyboard shortcuts reference
+- `docs/guide/ui/` - UI components documentation
+- `docs/guide/advanced/` - Advanced topics
 
 ## Environment Variables
 

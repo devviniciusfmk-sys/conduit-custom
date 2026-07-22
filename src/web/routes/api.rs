@@ -51,6 +51,14 @@ pub fn api_routes() -> Router<WebAppState> {
         // Workspace routes
         .route("/workspaces", get(workspaces::list_workspaces))
         .route("/workspaces/{id}", get(workspaces::get_workspace))
+        .route(
+            "/workspaces/{id}/rename",
+            patch(workspaces::rename_workspace),
+        )
+        .route(
+            "/workspaces/{id}/identity",
+            patch(workspaces::update_workspace_identity),
+        )
         .route("/workspaces/{id}", delete(workspaces::delete_workspace))
         .route(
             "/workspaces/{id}/archive",

@@ -3,7 +3,7 @@ title = "Conduit Documentation"
 description = "Multi-agent TUI for Claude Code and Codex CLI"
 authors = ["Felipe Coury"]
 language = "en"
-src = "src"
+src = "guide"
 
 [build]
 build-dir = "book"

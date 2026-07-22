@@ -117,6 +117,10 @@ pub struct Workspace {
     pub repository_id: Uuid,
     /// Display name for the workspace
     pub name: String,
+    /// Emoji displayed with the workspace name
+    pub icon: String,
+    /// Visual color from the supported workspace palette
+    pub color: String,
     /// Git branch this workspace is on
     pub branch: String,
     /// Path to the worktree directory
@@ -146,6 +150,8 @@ impl Workspace {
             id: Uuid::new_v4(),
             repository_id,
             name: name.into(),
+            icon: "📁".to_string(),
+            color: "gray".to_string(),
             branch: branch.into(),
             path,
             created_at: now,

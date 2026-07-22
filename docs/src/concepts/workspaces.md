@@ -1,5 +1,13 @@
 # Workspaces
 
+## Rename a workspace
+
+In the Web interface, hover over a workspace in the sidebar and choose **Rename workspace**.
+Enter a display name of up to 60 characters and select **Rename** (or press Enter).
+
+Renaming changes only the workspace's displayed name. Its Git branch, worktree folder,
+open sessions, and session history remain unchanged.
+
 A **workspace** is a working context within a project, tied to a git branch.
 
 ## What is a Workspace?

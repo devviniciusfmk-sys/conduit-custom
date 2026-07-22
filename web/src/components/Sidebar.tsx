@@ -11,11 +11,18 @@ import {
   Archive,
   FolderOpen,
   Trash2,
+  Pencil,
 } from 'lucide-react';
 import { cn } from '../lib/cn';
 import type { Repository, Workspace } from '../types';
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog';
 import { Logo } from './Logo';
+import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog';
+
+const workspaceColorClasses: Record<Workspace['color'], string> = {
+  gray: 'text-gray-400', blue: 'text-blue-400', green: 'text-green-400',
+  orange: 'text-orange-400', purple: 'text-purple-400', red: 'text-red-400',
+};
 
 interface WorkspaceItemProps {
   repository: Repository;
@@ -23,6 +30,7 @@ interface WorkspaceItemProps {
   isSelected?: boolean;
   onSelect?: () => void;
   onArchive?: () => void;
+  onRename?: () => void;
 }
 
 function parseGitHubRepo(repoUrl: string | null | undefined): string | null {
@@ -48,6 +56,7 @@ function WorkspaceItem({
   isSelected,
   onSelect,
   onArchive,
+  onRename,
 }: WorkspaceItemProps) {
   const [hasInitialStatus, setHasInitialStatus] = useState(false);
   const shouldPoll = !!isSelected || !hasInitialStatus;
@@ -102,7 +111,10 @@ function WorkspaceItem({
 
       {/* Workspace name + status indicators second */}
       <div className="ml-5 flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium">{workspace.name}</span>
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium">
+          <span className={workspaceColorClasses[workspace.color]} aria-hidden="true">{workspace.icon}</span>
+          <span className="truncate">{workspace.name}</span>
+        </span>
 
         <div className="flex shrink-0 items-center gap-2 text-xs">
           {/* Git stats */}
@@ -150,6 +162,22 @@ function WorkspaceItem({
             </span>
           ) : null}
 
+          {onRename && (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                onRename();
+              }}
+              className={cn(
+                'flex items-center justify-center rounded p-1 text-text-muted transition-colors hover:bg-surface-elevated hover:text-text',
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+              )}
+              aria-label={`Workspace settings ${workspace.name}`}
+              title="Workspace settings"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
           {onArchive && (
             <button
               onClick={(event) => {
@@ -177,6 +205,7 @@ interface RepositorySectionProps {
   selectedWorkspaceId?: string | null;
   onSelectWorkspace?: (workspace: Workspace) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
+  onRenameWorkspace?: (workspace: Workspace) => void;
   onNewWorkspace?: () => void;
   onRemoveRepository?: (repository: Repository) => void;
 }
@@ -187,6 +216,7 @@ function RepositorySection({
   selectedWorkspaceId,
   onSelectWorkspace,
   onArchiveWorkspace,
+  onRenameWorkspace,
   onNewWorkspace,
   onRemoveRepository,
 }: RepositorySectionProps) {
@@ -252,6 +282,7 @@ function RepositorySection({
               isSelected={workspace.id === selectedWorkspaceId}
               onSelect={() => onSelectWorkspace?.(workspace)}
               onArchive={onArchiveWorkspace ? () => onArchiveWorkspace(workspace) : undefined}
+              onRename={() => onRenameWorkspace?.(workspace)}
             />
           ))}
         </div>
@@ -286,6 +317,7 @@ export function Sidebar({
   const [workspacesExpanded, setWorkspacesExpanded] = useState(true);
   const [createWorkspaceRepo, setCreateWorkspaceRepo] = useState<Repository | null>(null);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [renameWorkspace, setRenameWorkspace] = useState<Workspace | null>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
   // Group workspaces by repository
@@ -356,6 +388,7 @@ export function Sidebar({
                   selectedWorkspaceId={selectedWorkspaceId}
                   onSelectWorkspace={onSelectWorkspace}
                   onArchiveWorkspace={onArchiveWorkspace}
+                  onRenameWorkspace={setRenameWorkspace}
                   onRemoveRepository={onRemoveRepository}
                   onNewWorkspace={() => handleNewWorkspace(repo)}
                 />
@@ -423,6 +456,12 @@ export function Sidebar({
             setCreateWorkspaceRepo(null);
           }}
           onSuccess={handleWorkspaceCreated}
+        />
+      )}
+      {renameWorkspace && (
+        <WorkspaceSettingsDialog
+          workspace={renameWorkspace}
+          onClose={() => setRenameWorkspace(null)}
         />
       )}
     </aside>

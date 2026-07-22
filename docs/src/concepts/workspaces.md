@@ -1,5 +1,19 @@
 # Workspaces
 
+## Workspace identity
+
+Each workspace has a display name, emoji icon, and color. The sidebar combines these fields,
+for example `🎬 Render Engine`, so workspaces are easier to recognize at a glance.
+
+In the Web interface, hover over a workspace and choose **Workspace settings**. You can edit:
+
+- Name (up to 60 characters)
+- Icon from the emoji picker
+- Color: gray, blue, green, orange, purple, or red
+
+Existing workspaces default to the `📁` icon and gray color. These visual settings do not
+change the Git branch, worktree folder, path, open sessions, or session history.
+
 A **workspace** is a working context within a project, tied to a git branch.
 
 ## What is a Workspace?

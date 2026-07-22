@@ -45,7 +45,7 @@ mod tree_view;
 mod turn_summary;
 mod workspace_defaults_dialog;
 
-pub use add_repo_dialog::{AddRepoDialog, AddRepoDialogState};
+pub use add_repo_dialog::{AddRepoDialog, AddRepoDialogState, AddRepoMode, NewProjectField};
 pub use agent_selector::{AgentSelector, AgentSelectorState};
 pub use base_dir_dialog::{BaseDirDialog, BaseDirDialogState};
 pub use chat_message::{ChatMessage, MessageRole};
@@ -77,7 +77,7 @@ pub use model_selector::{
     DefaultModelSelection, ModelSelector, ModelSelectorItem, ModelSelectorState,
 };
 pub use multi_select_dialog::{MultiSelectDialog, MultiSelectDialogState, MultiSelectItem};
-pub use path_input::PathInputState;
+pub use path_input::{expand_tilde, PathInputState};
 pub use project_picker::{ProjectEntry, ProjectPicker, ProjectPickerState};
 pub use provider_selector::{ProviderSelector, ProviderSelectorState};
 pub use raw_events_types::{

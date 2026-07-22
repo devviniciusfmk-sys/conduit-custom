@@ -524,6 +524,20 @@ pub fn default_keybindings() -> KeybindingConfig {
         KeyCombo::new(KeyCode::End, KeyModifiers::NONE),
         Action::MoveCursorEnd,
     );
+    // Tab switches between "Add existing" and "Create new project";
+    // Up/Down move between the fields of the create-new tab.
+    add_repo.insert(
+        KeyCombo::new(KeyCode::Tab, KeyModifiers::NONE),
+        Action::CycleAddRepoMode,
+    );
+    add_repo.insert(
+        KeyCombo::new(KeyCode::Down, KeyModifiers::NONE),
+        Action::SelectNext,
+    );
+    add_repo.insert(
+        KeyCombo::new(KeyCode::Up, KeyModifiers::NONE),
+        Action::SelectPrev,
+    );
 
     // ========== Base Directory Dialog ==========
     let base_dir = config.context.entry(KeyContext::BaseDir).or_default();

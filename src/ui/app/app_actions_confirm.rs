@@ -1,7 +1,7 @@
 use crate::agent::MessageDisplay;
 use crate::ui::app::App;
 use crate::ui::app_state::ModelPickerContext;
-use crate::ui::components::ConfirmationContext;
+use crate::ui::components::{AddRepoMode, ConfirmationContext};
 use crate::ui::effect::Effect;
 use crate::ui::events::InputMode;
 
@@ -211,7 +211,10 @@ impl App {
             }
             InputMode::AddingRepository => {
                 if self.state.add_repo_dialog_state.is_valid() {
-                    let repo_id = self.add_repository();
+                    let repo_id = match self.state.add_repo_dialog_state.mode {
+                        AddRepoMode::AddExisting => self.add_repository(),
+                        AddRepoMode::CreateNew => self.create_new_repository(),
+                    };
                     self.state.add_repo_dialog_state.hide();
                     if let Some(id) = repo_id {
                         self.state.sidebar_data.expand_repo(id);
@@ -222,7 +225,9 @@ impl App {
                         self.state.sidebar_state.set_focused(true);
                         self.state.show_first_time_splash = false;
                         self.state.input_mode = InputMode::SidebarNavigation;
-                    } else {
+                    } else if self.state.input_mode == InputMode::AddingRepository {
+                        // Creation failures already switched to the error dialog,
+                        // so only reset the mode when nothing else claimed it.
                         self.state.input_mode = InputMode::Normal;
                     }
                 }

@@ -1960,6 +1960,7 @@ impl App {
             }
             Action::Cancel
             | Action::AddRepository
+            | Action::CycleAddRepoMode
             | Action::OpenSettings
             | Action::ArchiveOrRemove => {
                 self.handle_dialog_action(action);
@@ -4794,6 +4795,49 @@ impl App {
         // Create repository (without default workspace)
         let repo = Repository::from_local_path(&name, path);
         if repo_dao.create(&repo).is_err() {
+            return None;
+        }
+
+        let repo_id = repo.id;
+
+        // Refresh sidebar
+        self.refresh_sidebar_data();
+
+        Some(repo_id)
+    }
+
+    /// Create a brand-new project on disk from the dialog, then register it
+    ///
+    /// Creates the folder, runs `git init`, writes a README and records the
+    /// first commit. Shows an error dialog and returns `None` on failure.
+    fn create_new_repository(&mut self) -> Option<uuid::Uuid> {
+        let parent = self.state.add_repo_dialog_state.new_parent_path();
+        let name = self
+            .state
+            .add_repo_dialog_state
+            .new_project_name()
+            .to_string();
+
+        let path = match crate::git::create_new_project(&parent, &name) {
+            Ok(path) => path,
+            Err(e) => {
+                self.show_error("Failed to Create Project", &e.to_string());
+                return None;
+            }
+        };
+
+        // Register the freshly created project the same way an existing one is
+        let repo = Repository::from_local_path(&name, path);
+        let created = match self.repo_dao() {
+            Some(repo_dao) => repo_dao.create(&repo).is_ok(),
+            None => false,
+        };
+
+        if !created {
+            self.show_error(
+                "Failed to Create Project",
+                "The project was created on disk, but could not be saved to the database.",
+            );
             return None;
         }
 

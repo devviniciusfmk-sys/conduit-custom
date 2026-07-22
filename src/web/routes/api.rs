@@ -101,6 +101,10 @@ pub fn api_routes() -> Router<WebAppState> {
         .route("/onboarding/base-dir", post(onboarding::set_base_dir))
         .route("/onboarding/projects", get(onboarding::list_projects))
         .route("/onboarding/add-project", post(onboarding::add_project))
+        .route(
+            "/onboarding/create-project",
+            post(onboarding::create_project),
+        )
         // External session import
         .route(
             "/external-sessions",

@@ -156,6 +156,8 @@ pub enum Action {
     Collapse,
     /// Add a repository
     AddRepository,
+    /// Switch between the add-project dialog tabs (existing / create new)
+    CycleAddRepoMode,
     /// Open settings dialog
     OpenSettings,
     /// Archive workspace or remove project
@@ -314,6 +316,7 @@ impl Action {
             Action::ExpandOrSelect => "Expand/select",
             Action::Collapse => "Collapse",
             Action::AddRepository => "Add repository",
+            Action::CycleAddRepoMode => "Switch add-project tab",
             Action::OpenSettings => "Open settings",
             Action::ArchiveOrRemove => "Archive/remove",
 

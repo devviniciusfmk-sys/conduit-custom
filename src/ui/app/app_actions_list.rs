@@ -6,6 +6,9 @@ impl App {
     pub(super) fn handle_list_action(&mut self, action: Action) {
         match action {
             Action::SelectNext => match self.state.input_mode {
+                InputMode::AddingRepository => {
+                    self.state.add_repo_dialog_state.focus_next_field();
+                }
                 InputMode::SidebarNavigation => {
                     let visible_count = self.state.sidebar_data.visible_nodes().len();
                     self.state
@@ -54,6 +57,9 @@ impl App {
                 _ => {}
             },
             Action::SelectPrev => match self.state.input_mode {
+                InputMode::AddingRepository => {
+                    self.state.add_repo_dialog_state.focus_prev_field();
+                }
                 InputMode::SidebarNavigation => {
                     let visible_count = self.state.sidebar_data.visible_nodes().len();
                     self.state

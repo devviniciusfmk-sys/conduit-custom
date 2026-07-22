@@ -4,6 +4,16 @@ use std::path::PathBuf;
 
 use super::TextInputState;
 
+/// Expand a leading `~` to the user's home directory.
+pub fn expand_tilde(input: &str) -> PathBuf {
+    if let Some(rest) = input.strip_prefix('~') {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest.trim_start_matches('/'));
+        }
+    }
+    PathBuf::from(input)
+}
+
 /// Shared state for dialogs that capture a filesystem path.
 #[derive(Debug, Clone)]
 pub struct PathInputState {
@@ -80,13 +90,7 @@ impl PathInputState {
 
     /// Get the expanded path (handles ~).
     pub fn expanded_path(&self) -> PathBuf {
-        let input = self.text.value();
-        if let Some(rest) = input.strip_prefix('~') {
-            if let Some(home) = dirs::home_dir() {
-                return home.join(rest.trim_start_matches('/'));
-            }
-        }
-        PathBuf::from(input)
+        expand_tilde(self.text.value())
     }
 
     // Delegated text input methods.

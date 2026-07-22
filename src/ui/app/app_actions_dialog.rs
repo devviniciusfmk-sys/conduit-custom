@@ -134,6 +134,13 @@ impl App {
                 }
                 _ => {}
             },
+            Action::CycleAddRepoMode => {
+                if self.state.input_mode == InputMode::AddingRepository {
+                    self.state.add_repo_dialog_state.toggle_mode();
+                    // Re-validate so the status line reflects the tab we landed on
+                    self.state.add_repo_dialog_state.validate();
+                }
+            }
             Action::OpenSettings => {
                 if matches!(
                     self.state.input_mode,

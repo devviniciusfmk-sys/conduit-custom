@@ -466,6 +466,7 @@ pub fn parse_action(name: &str) -> Option<Action> {
         "expand_or_select" => Some(Action::ExpandOrSelect),
         "collapse" => Some(Action::Collapse),
         "add_repository" => Some(Action::AddRepository),
+        "cycle_add_repo_mode" => Some(Action::CycleAddRepoMode),
         "open_settings" => Some(Action::OpenSettings),
         "archive_or_remove" => Some(Action::ArchiveOrRemove),
 
@@ -575,6 +576,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "expand_or_select",
     "collapse",
     "add_repository",
+    "cycle_add_repo_mode",
     "open_settings",
     "archive_or_remove",
     // Sidebar

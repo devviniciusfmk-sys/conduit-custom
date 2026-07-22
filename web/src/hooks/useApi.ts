@@ -15,6 +15,7 @@ import type {
   UpdateQueueMessageRequest,
   OnboardingProjectsResponse,
   AddOnboardingProjectRequest,
+  CreateOnboardingProjectRequest,
 } from '../types';
 
 // Query keys
@@ -198,6 +199,17 @@ export function useAddOnboardingProject() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: AddOnboardingProjectRequest) => api.addOnboardingProject(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories });
+      queryClient.invalidateQueries({ queryKey: queryKeys.onboardingProjects });
+    },
+  });
+}
+
+export function useCreateOnboardingProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateOnboardingProjectRequest) => api.createOnboardingProject(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories });
       queryClient.invalidateQueries({ queryKey: queryKeys.onboardingProjects });

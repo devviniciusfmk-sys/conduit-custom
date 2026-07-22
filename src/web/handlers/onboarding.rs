@@ -4,7 +4,7 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use crate::data::Repository;
+use crate::data::{Repository, RepositoryStore};
 use crate::web::error::WebError;
 use crate::web::handlers::repositories::RepositoryResponse;
 use crate::web::state::WebAppState;
@@ -41,6 +41,14 @@ pub struct AddProjectRequest {
 #[derive(Debug, Serialize)]
 pub struct AddProjectResponse {
     pub repository: RepositoryResponse,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    /// Project name, which becomes the folder name
+    pub name: String,
+    /// Folder the project directory is created in
+    pub parent: String,
 }
 
 fn expand_path(raw: &str) -> PathBuf {
@@ -166,6 +174,31 @@ pub async fn list_projects(
     Ok(Json(ProjectsResponse { projects }))
 }
 
+/// Register a project path in the database
+///
+/// Returns the existing repository when the path is already known, so adding
+/// the same project twice is a no-op instead of an error.
+fn register_repository(
+    repo_store: &RepositoryStore,
+    config: &crate::config::Config,
+    path: PathBuf,
+    name: &str,
+) -> Result<RepositoryResponse, WebError> {
+    if let Some(existing) = repo_store
+        .get_by_path(&path)
+        .map_err(|e| WebError::Internal(format!("Failed to check repositories: {e}")))?
+    {
+        return Ok(RepositoryResponse::from_repo(existing, config));
+    }
+
+    let repo = Repository::from_local_path(name, path);
+    repo_store
+        .create(&repo)
+        .map_err(|e| WebError::Internal(format!("Failed to create repository: {e}")))?;
+
+    Ok(RepositoryResponse::from_repo(repo, config))
+}
+
 pub async fn add_project(
     State(state): State<WebAppState>,
     Json(req): Json<AddProjectRequest>,
@@ -183,27 +216,59 @@ pub async fn add_project(
         .repo_store()
         .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
 
-    if let Some(existing) = repo_store
-        .get_by_path(&expanded)
-        .map_err(|e| WebError::Internal(format!("Failed to check repositories: {e}")))?
-    {
-        return Ok(Json(AddProjectResponse {
-            repository: RepositoryResponse::from_repo(existing, core.config()),
-        }));
-    }
-
     let name = expanded
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("Unknown")
         .to_string();
 
-    let repo = Repository::from_local_path(&name, expanded);
-    repo_store
-        .create(&repo)
-        .map_err(|e| WebError::Internal(format!("Failed to create repository: {e}")))?;
+    let repository = register_repository(repo_store, core.config(), expanded, &name)?;
 
-    Ok(Json(AddProjectResponse {
-        repository: RepositoryResponse::from_repo(repo, core.config()),
-    }))
+    Ok(Json(AddProjectResponse { repository }))
+}
+
+/// Create a brand-new project on disk, then register it
+///
+/// Creates `parent/name`, runs `git init`, writes a README and records the
+/// first commit — the same code path the TUI uses.
+pub async fn create_project(
+    State(state): State<WebAppState>,
+    Json(req): Json<CreateProjectRequest>,
+) -> Result<Json<AddProjectResponse>, WebError> {
+    let name = req.name.trim().to_string();
+    let parent_input = req.parent.trim().to_string();
+
+    if name.is_empty() {
+        return Err(WebError::BadRequest(
+            "Project name cannot be empty".to_string(),
+        ));
+    }
+    if parent_input.is_empty() {
+        return Err(WebError::BadRequest(
+            "Parent folder cannot be empty".to_string(),
+        ));
+    }
+
+    let parent = expand_path(&parent_input);
+
+    // Creating the project shells out to git, so keep it off the async threads.
+    let created = {
+        let name = name.clone();
+        tokio::task::spawn_blocking(move || crate::git::create_new_project(&parent, &name))
+            .await
+            .map_err(|e| WebError::Internal(format!("Failed to create project: {e}")))?
+    };
+
+    // Every failure here is about the requested name/folder or the machine's git
+    // setup, so surface the real message instead of a bare 500.
+    let path = created.map_err(|e| WebError::BadRequest(e.to_string()))?;
+
+    let core = state.core().await;
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+
+    let repository = register_repository(repo_store, core.config(), path, &name)?;
+
+    Ok(Json(AddProjectResponse { repository }))
 }

@@ -440,4 +440,122 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
+
+    /// POST /api/onboarding/create-project with the given body
+    async fn create_project_request(body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let state = test_state();
+        let app = build_router(state, true);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/onboarding/create-project")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_create_project_endpoint() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let (status, json) = create_project_request(serde_json::json!({
+            "name": "my-app",
+            "parent": dir.path().to_str().unwrap(),
+        }))
+        .await;
+
+        let project_path = dir.path().join("my-app");
+
+        // Without a git identity nothing can be committed; the handler reports
+        // that as a bad request with an actionable message and creates nothing.
+        if status == StatusCode::BAD_REQUEST {
+            assert!(
+                json["details"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("git config --global user.name"),
+                "{json}"
+            );
+            assert!(!project_path.exists());
+            return;
+        }
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            json["repository"]["name"].as_str(),
+            Some("my-app"),
+            "{json}"
+        );
+        assert!(project_path.join(".git").exists());
+        assert_eq!(
+            std::fs::read_to_string(project_path.join("README.md")).unwrap(),
+            "# my-app\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_project_rejects_empty_name() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let (status, _) = create_project_request(serde_json::json!({
+            "name": "   ",
+            "parent": dir.path().to_str().unwrap(),
+        }))
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_create_project_rejects_missing_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope");
+
+        let (status, json) = create_project_request(serde_json::json!({
+            "name": "my-app",
+            "parent": missing.to_str().unwrap(),
+        }))
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // The real reason must reach the browser, not a generic message
+        assert!(
+            json["details"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("does not exist"),
+            "{json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_project_rejects_existing_target() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("my-app")).unwrap();
+
+        let (status, json) = create_project_request(serde_json::json!({
+            "name": "my-app",
+            "parent": dir.path().to_str().unwrap(),
+        }))
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            json["details"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("already exists"),
+            "{json}"
+        );
+    }
 }

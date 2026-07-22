@@ -307,6 +307,14 @@ export interface AddOnboardingProjectResponse {
   repository: Repository;
 }
 
+/** Create a brand-new project: folder + git init + README + first commit. */
+export interface CreateOnboardingProjectRequest {
+  /** Project name, which becomes the folder name */
+  name: string;
+  /** Folder the project directory is created in */
+  parent: string;
+}
+
 // Model types
 export interface ModelInfo {
   id: string;

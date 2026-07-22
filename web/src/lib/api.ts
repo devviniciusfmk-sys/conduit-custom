@@ -42,6 +42,7 @@ import type {
   OnboardingProjectsResponse,
   AddOnboardingProjectRequest,
   AddOnboardingProjectResponse,
+  CreateOnboardingProjectRequest,
   FileContentResponse,
 } from '../types';
 import type { Theme, ThemeListResponse } from './themes';
@@ -388,6 +389,15 @@ export async function addOnboardingProject(
   data: AddOnboardingProjectRequest
 ): Promise<AddOnboardingProjectResponse> {
   return request('/onboarding/add-project', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function createOnboardingProject(
+  data: CreateOnboardingProjectRequest
+): Promise<AddOnboardingProjectResponse> {
+  return request('/onboarding/create-project', {
     method: 'POST',
     body: JSON.stringify(data),
   });

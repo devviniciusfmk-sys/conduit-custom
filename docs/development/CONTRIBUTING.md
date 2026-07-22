@@ -16,7 +16,7 @@ Thank you for your interest in contributing to Conduit! This document provides g
 
 ## Code of Conduct
 
-This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to the maintainers.
+This project adheres to the [Contributor Covenant Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/). By participating, you are expected to uphold this code. Please report unacceptable behavior to the maintainers.
 
 ## Getting Started
 
@@ -183,7 +183,7 @@ When reporting a bug, please include:
    - Screenshots if applicable
    - Relevant configuration
 
-Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md) when creating issues.
+Use the [bug report template](../../.github/ISSUE_TEMPLATE/bug_report.md) when creating issues.
 
 ## Suggesting Features
 
@@ -195,7 +195,7 @@ When suggesting a feature:
 4. **Consider alternatives** you've thought about
 5. **Provide examples** of how the feature would work
 
-Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md) when creating issues.
+Use the [feature request template](../../.github/ISSUE_TEMPLATE/feature_request.md) when creating issues.
 
 ## Questions?
 

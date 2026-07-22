@@ -44,6 +44,12 @@ export interface ArchivePreflightResponse {
   remote_branch_exists: boolean | null;
 }
 
+/** Result of permanently deleting a workspace. */
+export interface DeleteWorkspaceResponse {
+  /** Non-fatal problems, e.g. the local branch could not be deleted */
+  warnings: string[];
+}
+
 export interface RepositoryRemovePreflightResponse {
   repository_name: string;
   workspace_count: number;

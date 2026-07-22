@@ -32,7 +32,9 @@ import {
   useCloseSession,
   useOnboardingBaseDir,
   useWorkspaceArchivePreflight,
+  useWorkspaceDeletePreflight,
   useArchiveWorkspace,
+  useDeleteWorkspace,
   useAutoCreateWorkspace,
   useRepositoryRemovePreflight,
   useRemoveRepository,
@@ -153,6 +155,7 @@ function AppContent() {
   const closeSession = useCloseSession();
   const clearUnseenSession = useClearUnseenSession();
   const archiveWorkspace = useArchiveWorkspace();
+  const deleteWorkspace = useDeleteWorkspace();
   const autoCreateWorkspace = useAutoCreateWorkspace();
   const updateRepositorySettings = useUpdateRepositorySettings();
   const updateSession = useUpdateSession();
@@ -171,6 +174,7 @@ function AppContent() {
   const [pendingWorkspaceRepoId, setPendingWorkspaceRepoId] = useState<string | null>(null);
   const [archiveWorkspaceTarget, setArchiveWorkspaceTarget] = useState<Workspace | null>(null);
   const [archiveRemotePromptTarget, setArchiveRemotePromptTarget] = useState<Workspace | null>(null);
+  const [deleteWorkspaceTarget, setDeleteWorkspaceTarget] = useState<Workspace | null>(null);
   const [removeRepositoryTarget, setRemoveRepositoryTarget] = useState<Repository | null>(null);
   const [fileViewerTabs, setFileViewerTabs] = useState<FileViewerTab[]>([]);
   const [activeFileViewerId, setActiveFileViewerId] = useState<string | null>(null);
@@ -215,6 +219,10 @@ function AppContent() {
     archiveWorkspaceTarget?.id ?? null,
     { enabled: !!archiveWorkspaceTarget }
   );
+  const { data: deletePreflight } = useWorkspaceDeletePreflight(
+    deleteWorkspaceTarget?.id ?? null,
+    { enabled: !!deleteWorkspaceTarget }
+  );
   const { data: removeRepositoryPreflight } = useRepositoryRemovePreflight(
     removeRepositoryTarget?.id ?? null,
     { enabled: !!removeRepositoryTarget }
@@ -239,6 +247,30 @@ function AppContent() {
     }
     return description;
   }, [archiveRepo]);
+
+  const deleteRepo = deleteWorkspaceTarget
+    ? resolvedRepositories.find((candidate) => candidate.id === deleteWorkspaceTarget.repository_id)
+    : undefined;
+
+  const deleteDescription = useMemo(() => {
+    const target = deleteRepo?.workspace_mode_effective === 'checkout' ? 'checkout' : 'worktree';
+    const branch = deleteWorkspaceTarget?.branch;
+    return (
+      `This deletes the ${target} from disk` +
+      (branch ? ` and the local branch "${branch}".` : '.') +
+      ' It cannot be undone.'
+    );
+  }, [deleteRepo, deleteWorkspaceTarget]);
+
+  const deleteWarnings = useMemo(() => {
+    const warnings = [...(deletePreflight?.warnings ?? [])];
+    // Deleting here never touches the remote, which is worth saying out loud
+    // next to an action this destructive.
+    if (deletePreflight?.remote_branch_exists) {
+      warnings.push('The remote branch is kept and must be deleted separately');
+    }
+    return warnings;
+  }, [deletePreflight]);
 
   useEffect(() => {
     setHistoryReady(true);
@@ -453,8 +485,9 @@ function AppContent() {
     setArchiveWorkspaceTarget(workspace);
   };
 
-  const performArchive = (workspace: Workspace, deleteRemote: boolean) => {
-    const workspaceId = workspace.id;
+  /// Drop the tabs, selection and active session that belonged to a workspace
+  /// that no longer exists. Shared by archiving and permanent deletion.
+  const cleanupAfterWorkspaceRemoval = (workspaceId: string) => {
     const sessionIdsToRemove = orderedSessions
       .filter((session) => session.workspace_id === workspaceId)
       .map((session) => session.id);
@@ -462,38 +495,61 @@ function AppContent() {
       (session) => session.workspace_id !== workspaceId
     );
 
+    if (sessionIdsToRemove.length > 0) {
+      const newTabOrder = (resolvedUiState?.tab_order ?? []).filter(
+        (id) => !sessionIdsToRemove.includes(id)
+      );
+      updateUiState.mutate({ tab_order: newTabOrder });
+    }
+
+    if (activeSessionId && sessionIdsToRemove.includes(activeSessionId)) {
+      if (remainingSessions.length > 0) {
+        const next = remainingSessions[0];
+        setActiveSessionId(next.id);
+        updateUiState.mutate({
+          active_session_id: next.id,
+          last_workspace_id: next.workspace_id ?? null,
+        });
+        setSelectedWorkspaceId(next.workspace_id ?? null);
+      } else {
+        setActiveSessionId(null);
+        updateUiState.mutate({ active_session_id: null });
+      }
+    }
+
+    if (selectedWorkspaceId === workspaceId) {
+      setSelectedWorkspaceId(null);
+      updateUiState.mutate({ last_workspace_id: null });
+    }
+  };
+
+  const performArchive = (workspace: Workspace, deleteRemote: boolean) => {
+    const workspaceId = workspace.id;
+
     archiveWorkspace.mutate({ id: workspaceId, delete_remote: deleteRemote }, {
       onSuccess: () => {
-        if (sessionIdsToRemove.length > 0) {
-          const newTabOrder = (resolvedUiState?.tab_order ?? []).filter(
-            (id) => !sessionIdsToRemove.includes(id)
-          );
-          updateUiState.mutate({ tab_order: newTabOrder });
-        }
-
-        if (activeSessionId && sessionIdsToRemove.includes(activeSessionId)) {
-          if (remainingSessions.length > 0) {
-            const next = remainingSessions[0];
-            setActiveSessionId(next.id);
-            updateUiState.mutate({
-              active_session_id: next.id,
-              last_workspace_id: next.workspace_id ?? null,
-            });
-            setSelectedWorkspaceId(next.workspace_id ?? null);
-          } else {
-            setActiveSessionId(null);
-            updateUiState.mutate({ active_session_id: null });
-          }
-        }
-
-        if (selectedWorkspaceId === workspaceId) {
-          setSelectedWorkspaceId(null);
-          updateUiState.mutate({ last_workspace_id: null });
-        }
-
+        cleanupAfterWorkspaceRemoval(workspaceId);
         setArchiveWorkspaceTarget(null);
         setArchiveRemotePromptTarget(null);
       },
+    });
+  };
+
+  const handleDeleteWorkspace = (workspace: Workspace) => {
+    deleteWorkspace.reset();
+    setDeleteWorkspaceTarget(workspace);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deleteWorkspaceTarget) return;
+    const workspaceId = deleteWorkspaceTarget.id;
+
+    deleteWorkspace.mutate(workspaceId, {
+      onSuccess: () => {
+        cleanupAfterWorkspaceRemoval(workspaceId);
+        setDeleteWorkspaceTarget(null);
+      },
+      // Failures keep the dialog open so the reason stays on screen
     });
   };
 
@@ -1001,6 +1057,7 @@ function AppContent() {
         onSelectWorkspace={handleSelectWorkspace}
         onCreateWorkspace={(repository) => setCreateWorkspaceRepo(repository)}
         onArchiveWorkspace={handleArchiveWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
         onRemoveRepository={handleRemoveRepository}
         onAddProject={handleAddProject}
         onBrowseProjects={handleBrowseProjects}
@@ -1139,6 +1196,22 @@ function AppContent() {
         onCancel={() => handleRemoteArchiveChoice(false)}
         isPending={archiveWorkspace.isPending}
         confirmVariant="warning"
+      />
+      <ConfirmDialog
+        isOpen={!!deleteWorkspaceTarget}
+        onClose={() => setDeleteWorkspaceTarget(null)}
+        title={`Delete "${deleteWorkspaceTarget?.name ?? ''}" permanently?`}
+        description={deleteDescription}
+        confirmLabel="Delete permanently"
+        onConfirm={handleConfirmDelete}
+        warnings={deleteWarnings}
+        error={
+          deleteWorkspace.error instanceof Error
+            ? deleteWorkspace.error.message
+            : deletePreflight?.error
+        }
+        isPending={deleteWorkspace.isPending}
+        confirmVariant="danger"
       />
       <ConfirmDialog
         isOpen={!!removeRepositoryTarget}

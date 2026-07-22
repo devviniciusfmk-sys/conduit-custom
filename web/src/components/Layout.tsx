@@ -10,6 +10,7 @@ interface LayoutProps {
   onSelectWorkspace?: (workspace: Workspace) => void;
   onCreateWorkspace?: (repository: Repository) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
+  onDeleteWorkspace?: (workspace: Workspace) => void;
   onRemoveRepository?: (repository: Repository) => void;
   onAddProject?: () => void;
   onBrowseProjects?: () => void;
@@ -40,6 +41,7 @@ export function Layout({
   onSelectWorkspace,
   onCreateWorkspace,
   onArchiveWorkspace,
+  onDeleteWorkspace,
   onRemoveRepository,
   onAddProject,
   onBrowseProjects,
@@ -118,6 +120,7 @@ export function Layout({
           onSelectWorkspace={onSelectWorkspace}
           onCreateWorkspace={onCreateWorkspace}
           onArchiveWorkspace={onArchiveWorkspace}
+          onDeleteWorkspace={onDeleteWorkspace}
           onRemoveRepository={onRemoveRepository}
           onAddProject={onAddProject}
           onBrowseProjects={onBrowseProjects}

@@ -441,6 +441,164 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
+    /// Create a git repository with one commit, using a repo-local identity so
+    /// the test does not depend on the machine's git configuration.
+    fn init_repo_with_commit(path: &std::path::Path) {
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(path)
+                .output()
+                .expect("git failed to run");
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+
+        run(&["init"]);
+        run(&["config", "user.email", "test@test.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(path.join("README.md"), "# test\n").unwrap();
+        run(&["add", "--", "README.md"]);
+        run(&["commit", "-m", "Initial commit"]);
+    }
+
+    /// Register a repository plus a workspace backed by a real git worktree
+    ///
+    /// The worktree goes under `managed_dir`, which must live inside the test's
+    /// own temp directory: the default location is a `worktrees/` folder beside
+    /// the repository, which for temp repos means a path shared by every test.
+    async fn seed_workspace_with_worktree(
+        state: &WebAppState,
+        repo_path: &std::path::Path,
+        managed_dir: PathBuf,
+    ) -> (uuid::Uuid, PathBuf) {
+        use crate::data::{Repository, Workspace};
+        use crate::git::{WorkspaceMode, WorkspaceRepoManager};
+
+        let repo = Repository::from_local_path("test-repo", repo_path.to_path_buf());
+        let worktree_path = WorkspaceRepoManager::with_managed_dir(managed_dir)
+            .create_workspace(WorkspaceMode::Worktree, repo_path, "test/ws", "ws")
+            .expect("failed to create worktree");
+        let workspace = Workspace::new(repo.id, "ws", "test/ws", worktree_path.clone());
+        let workspace_id = workspace.id;
+
+        let core = state.core().await;
+        core.repo_store().unwrap().create(&repo).unwrap();
+        core.workspace_store().unwrap().create(&workspace).unwrap();
+
+        (workspace_id, worktree_path)
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_removes_worktree_and_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path();
+        init_repo_with_commit(repo_path);
+
+        let state = test_state();
+        let (workspace_id, worktree_path) =
+            seed_workspace_with_worktree(&state, repo_path, dir.path().join("worktrees")).await;
+        assert!(worktree_path.exists(), "worktree was not created");
+
+        let app = build_router(state.clone(), true);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/workspaces/{workspace_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // The directory must be gone, not just the database row
+        assert!(
+            !worktree_path.exists(),
+            "worktree directory survived the delete: {}",
+            worktree_path.display()
+        );
+
+        // The local branch must be gone too
+        let branches = std::process::Command::new("git")
+            .args(["branch", "--list", "test/ws"])
+            .current_dir(repo_path)
+            .output()
+            .unwrap();
+        let branches = String::from_utf8_lossy(&branches.stdout);
+        assert!(branches.trim().is_empty(), "branch survived: {branches}");
+
+        // And the record must be gone from the database
+        let core = state.core().await;
+        let found = core
+            .workspace_store()
+            .unwrap()
+            .get_by_id(workspace_id)
+            .unwrap();
+        assert!(found.is_none(), "workspace record survived the delete");
+    }
+
+    #[tokio::test]
+    async fn test_delete_preflight_reports_uncommitted_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path();
+        init_repo_with_commit(repo_path);
+
+        let state = test_state();
+        let (workspace_id, worktree_path) =
+            seed_workspace_with_worktree(&state, repo_path, dir.path().join("worktrees")).await;
+
+        // Leave work behind that a forced delete would destroy
+        std::fs::write(worktree_path.join("notes.txt"), "work in progress").unwrap();
+
+        let app = build_router(state, true);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/workspaces/{workspace_id}/delete/preflight"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["is_dirty"].as_bool(), Some(true), "{json}");
+        assert!(
+            !json["warnings"].as_array().unwrap().is_empty(),
+            "confirmation would have nothing to warn about: {json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_workspace_not_found() {
+        let state = test_state();
+        let app = build_router(state, true);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/workspaces/{}", uuid::Uuid::new_v4()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
     /// POST /api/onboarding/create-project with the given body
     async fn create_project_request(body: serde_json::Value) -> (StatusCode, serde_json::Value) {
         let state = test_state();

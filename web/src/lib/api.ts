@@ -37,6 +37,7 @@ import type {
   PrPreflightResponse,
   PrCreateResponse,
   ArchivePreflightResponse,
+  DeleteWorkspaceResponse,
   ArchiveWorkspaceRequest,
   RepositoryRemovePreflightResponse,
   RepositoryRemoveResponse,
@@ -210,8 +211,14 @@ export async function getWorkspaceArchivePreflight(id: string): Promise<ArchiveP
   return request(`/workspaces/${id}/archive/preflight`);
 }
 
-export async function deleteWorkspace(id: string): Promise<void> {
-  await request(`/workspaces/${id}`, { method: 'DELETE' });
+/** Same shape as the archive preflight: what a delete would destroy. */
+export async function getWorkspaceDeletePreflight(id: string): Promise<ArchivePreflightResponse> {
+  return request(`/workspaces/${id}/delete/preflight`);
+}
+
+/** Permanently deletes the worktree, the local branch and the record. */
+export async function deleteWorkspace(id: string): Promise<DeleteWorkspaceResponse> {
+  return request(`/workspaces/${id}`, { method: 'DELETE' });
 }
 
 // Sessions

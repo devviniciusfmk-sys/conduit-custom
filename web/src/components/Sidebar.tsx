@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Archive,
   FolderOpen,
+  FolderMinus,
   Trash2,
   Pencil,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ interface WorkspaceItemProps {
   onSelect?: () => void;
   onArchive?: () => void;
   onRename?: () => void;
+  onDelete?: () => void;
 }
 
 function parseGitHubRepo(repoUrl: string | null | undefined): string | null {
@@ -57,6 +59,7 @@ function WorkspaceItem({
   onSelect,
   onArchive,
   onRename,
+  onDelete,
 }: WorkspaceItemProps) {
   const [hasInitialStatus, setHasInitialStatus] = useState(false);
   const shouldPoll = !!isSelected || !hasInitialStatus;
@@ -195,6 +198,22 @@ function WorkspaceItem({
               <Archive className="h-3.5 w-3.5" />
             </button>
           )}
+          {onDelete && (
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                onDelete();
+              }}
+              className={cn(
+                'flex items-center justify-center rounded p-1 text-text-muted transition-colors hover:bg-red-500/10 hover:text-red-400',
+                'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+              )}
+              aria-label={`Delete workspace ${workspace.name} permanently`}
+              title="Delete workspace permanently (worktree and local branch)"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -208,6 +227,7 @@ interface RepositorySectionProps {
   onSelectWorkspace?: (workspace: Workspace) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
   onRenameWorkspace?: (workspace: Workspace) => void;
+  onDeleteWorkspace?: (workspace: Workspace) => void;
   onNewWorkspace?: () => void;
   onRemoveRepository?: (repository: Repository) => void;
 }
@@ -219,6 +239,7 @@ function RepositorySection({
   onSelectWorkspace,
   onArchiveWorkspace,
   onRenameWorkspace,
+  onDeleteWorkspace,
   onNewWorkspace,
   onRemoveRepository,
 }: RepositorySectionProps) {
@@ -256,8 +277,9 @@ function RepositorySection({
               'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
             )}
             aria-label={`Remove project ${repository.name}`}
+            title="Remove project and archive all its workspaces (the project folder itself stays on disk)"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <FolderMinus className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
@@ -285,6 +307,7 @@ function RepositorySection({
               onSelect={() => onSelectWorkspace?.(workspace)}
               onArchive={onArchiveWorkspace ? () => onArchiveWorkspace(workspace) : undefined}
               onRename={() => onRenameWorkspace?.(workspace)}
+              onDelete={onDeleteWorkspace ? () => onDeleteWorkspace(workspace) : undefined}
             />
           ))}
         </div>
@@ -299,6 +322,7 @@ interface SidebarProps {
   onCreateWorkspace?: (repository: Repository) => void;
   onModeRequired?: (repository: Repository) => void;
   onArchiveWorkspace?: (workspace: Workspace) => void;
+  onDeleteWorkspace?: (workspace: Workspace) => void;
   onRemoveRepository?: (repository: Repository) => void;
   onAddProject?: () => void;
   onBrowseProjects?: () => void;
@@ -310,6 +334,7 @@ export function Sidebar({
   onCreateWorkspace,
   onModeRequired,
   onArchiveWorkspace,
+  onDeleteWorkspace,
   onRemoveRepository,
   onAddProject,
   onBrowseProjects,
@@ -390,6 +415,7 @@ export function Sidebar({
                   selectedWorkspaceId={selectedWorkspaceId}
                   onSelectWorkspace={onSelectWorkspace}
                   onArchiveWorkspace={onArchiveWorkspace}
+                  onDeleteWorkspace={onDeleteWorkspace}
                   onRenameWorkspace={setRenameWorkspace}
                   onRemoveRepository={onRemoveRepository}
                   onNewWorkspace={() => handleNewWorkspace(repo)}

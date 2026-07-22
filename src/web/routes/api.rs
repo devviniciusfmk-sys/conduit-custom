@@ -72,6 +72,12 @@ pub fn api_routes() -> Router<WebAppState> {
             "/workspaces/{id}/archive/preflight",
             get(workspaces::get_workspace_archive_preflight),
         )
+        // Deleting needs the same information archiving does - what would be
+        // lost - so it reuses the handler under a name that matches the action.
+        .route(
+            "/workspaces/{id}/delete/preflight",
+            get(workspaces::get_workspace_archive_preflight),
+        )
         .route(
             "/workspaces/{id}/pr/preflight",
             get(workspaces::get_workspace_pr_preflight),

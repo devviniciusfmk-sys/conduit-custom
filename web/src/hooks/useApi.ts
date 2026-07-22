@@ -34,6 +34,7 @@ export const queryKeys = {
   workspace: (id: string) => ['workspaces', id] as const,
   workspaceStatus: (id: string) => ['workspaces', id, 'status'] as const,
   workspaceArchivePreflight: (id: string) => ['workspaces', id, 'archive-preflight'] as const,
+  workspaceDeletePreflight: (id: string) => ['workspaces', id, 'delete-preflight'] as const,
   workspacePrPreflight: (id: string) => ['workspaces', id, 'pr-preflight'] as const,
   workspaceSession: (id: string) => ['workspaces', id, 'session'] as const,
   workspaceFileContent: (workspaceId: string, filePath: string) =>
@@ -312,9 +313,26 @@ export function useDeleteWorkspace() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteWorkspace(id),
-    onSuccess: () => {
+    // A deleted workspace takes its sessions and status with it, so refresh the
+    // same queries archiving does.
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceStatus(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaceSession(id) });
     },
+  });
+}
+
+export function useWorkspaceDeletePreflight(
+  workspaceId: string | null,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.workspaceDeletePreflight(workspaceId ?? ''),
+    queryFn: () => api.getWorkspaceDeletePreflight(workspaceId!),
+    enabled: (options?.enabled ?? true) && !!workspaceId,
+    staleTime: 5000,
   });
 }
 

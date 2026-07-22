@@ -501,6 +501,63 @@ pub async fn create_workspace(
 }
 
 /// Archive a workspace (soft delete).
+/// Result of a permanent workspace deletion.
+#[derive(Debug, Serialize)]
+pub struct DeleteWorkspaceResponse {
+    /// Non-fatal problems, e.g. the local branch could not be deleted
+    pub warnings: Vec<String>,
+}
+
+/// Which branches to delete alongside a workspace's worktree
+#[derive(Debug, Clone, Copy)]
+struct TeardownOptions {
+    /// Delete the local branch
+    local_branch: bool,
+    /// Delete the branch on the remote
+    remote_branch: bool,
+}
+
+/// Remove a workspace's worktree (and optionally its branches) from disk
+///
+/// Collects problems as warnings instead of failing: the database side must
+/// still run, otherwise a half-removed workspace would linger in the sidebar
+/// with no way to retry.
+fn teardown_workspace_on_disk(
+    worktree_manager: &crate::git::WorkspaceRepoManager,
+    mode: crate::git::WorkspaceMode,
+    base_path: &std::path::Path,
+    workspace: &Workspace,
+    options: TeardownOptions,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    if let Err(err) = worktree_manager.remove_workspace(mode, base_path, &workspace.path) {
+        warnings.push(format!("Failed to remove worktree: {}", err));
+    }
+
+    if options.local_branch {
+        if let Err(err) =
+            worktree_manager.delete_branch(mode, base_path, &workspace.path, &workspace.branch)
+        {
+            warnings.push(format!(
+                "Failed to delete branch '{}': {}",
+                workspace.branch, err
+            ));
+        }
+    }
+
+    if options.remote_branch {
+        if let Err(err) = worktree_manager.delete_remote_branch(base_path, &workspace.branch) {
+            warnings.push(format!(
+                "Failed to delete remote branch '{}': {}",
+                workspace.branch, err
+            ));
+        }
+    }
+
+    warnings
+}
+
 pub async fn archive_workspace(
     State(state): State<WebAppState>,
     Path(id): Path<Uuid>,
@@ -552,34 +609,16 @@ pub async fn archive_workspace(
             }
         }
 
-        if let Err(err) =
-            worktree_manager.remove_workspace(settings.mode, &base_path, &workspace.path)
-        {
-            warnings.push(format!("Failed to remove worktree: {}", err));
-        }
-
-        if settings.archive_delete_branch {
-            if let Err(err) = worktree_manager.delete_branch(
-                settings.mode,
-                &base_path,
-                &workspace.path,
-                &workspace.branch,
-            ) {
-                warnings.push(format!(
-                    "Failed to delete branch '{}': {}",
-                    workspace.branch, err
-                ));
-            }
-        }
-
-        if delete_remote {
-            if let Err(err) = worktree_manager.delete_remote_branch(&base_path, &workspace.branch) {
-                warnings.push(format!(
-                    "Failed to delete remote branch '{}': {}",
-                    workspace.branch, err
-                ));
-            }
-        }
+        warnings.extend(teardown_workspace_on_disk(
+            worktree_manager,
+            settings.mode,
+            &base_path,
+            &workspace,
+            TeardownOptions {
+                local_branch: settings.archive_delete_branch,
+                remote_branch: delete_remote,
+            },
+        ));
     } else {
         warnings.push("Repository has no base path; worktree not removed".to_string());
     }
@@ -606,30 +645,92 @@ pub async fn archive_workspace(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Delete a workspace.
+/// Delete a workspace permanently.
+///
+/// Unlike archiving, this removes the worktree from disk, deletes the local
+/// branch and drops the database record. The remote branch is left untouched.
+///
+/// Removal is forceful (`git worktree remove --force`, `git branch -D`), so
+/// uncommitted changes and unmerged commits are lost. Callers are expected to
+/// confirm with the user first, using the preflight endpoint for the warnings.
 pub async fn delete_workspace(
     State(state): State<WebAppState>,
     Path(id): Path<Uuid>,
-) -> Result<StatusCode, WebError> {
+) -> Result<Json<DeleteWorkspaceResponse>, WebError> {
     let core = state.core().await;
-    let store = core
+    let workspace_store = core
         .workspace_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let repo_store = core
+        .repo_store()
+        .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
+    let session_store = core
+        .session_tab_store()
         .ok_or_else(|| WebError::Internal("Database not available".to_string()))?;
 
     // Check if workspace exists
-    let _workspace = store
+    let workspace = workspace_store
         .get_by_id(id)
         .map_err(|e| WebError::Internal(format!("Failed to get workspace: {}", e)))?
         .ok_or_else(|| WebError::NotFound(format!("Workspace {} not found", id)))?;
 
-    // Delete workspace
-    store
+    let repo = repo_store
+        .get_by_id(workspace.repository_id)
+        .map_err(|e| WebError::Internal(format!("Failed to get repository: {}", e)))?
+        .ok_or_else(|| {
+            WebError::NotFound(format!("Repository {} not found", workspace.repository_id))
+        })?;
+
+    let settings = resolve_repo_workspace_settings(core.config(), &repo);
+
+    let mut warnings = Vec::new();
+    if let Some(base_path) = repo.base_path {
+        warnings.extend(teardown_workspace_on_disk(
+            core.worktree_manager(),
+            settings.mode,
+            &base_path,
+            &workspace,
+            TeardownOptions {
+                // A permanent delete always takes the local branch with it
+                local_branch: true,
+                // Deleting on the remote is a separate, shared-state decision
+                remote_branch: false,
+            },
+        ));
+
+        // Dropping the record while the directory survives would strand it:
+        // invisible in the UI, still registered as a worktree, impossible to
+        // retry from here. Fail instead, so the workspace stays deletable.
+        if workspace.path.exists() {
+            return Err(WebError::Conflict(format!(
+                "Workspace directory could not be removed: {}. {}",
+                workspace.path.display(),
+                warnings.join("; ")
+            )));
+        }
+    } else {
+        warnings.push("Repository has no base path; worktree not removed".to_string());
+    }
+
+    workspace_store
         .delete(id)
         .map_err(|e| WebError::Internal(format!("Failed to delete workspace: {}", e)))?;
 
+    if let Err(e) = session_store.set_open_by_workspace(id, false) {
+        tracing::warn!(error = %e, "Failed to close sessions for deleted workspace");
+    }
+
     state.status_manager().remove_workspace(id);
 
-    Ok(StatusCode::NO_CONTENT)
+    if !warnings.is_empty() {
+        tracing::warn!(
+            workspace_id = %id,
+            warnings = ?warnings,
+            "Workspace deleted with warnings"
+        );
+    }
+
+    Ok(Json(DeleteWorkspaceResponse { warnings }))
 }
 
 /// Auto-create a workspace with generated name/branch.

@@ -17,6 +17,7 @@ import type {
   UpdateRepositorySettingsRequest,
   CreateWorkspaceRequest,
   RenameWorkspaceRequest,
+  UpdateWorkspaceIdentityRequest,
   CreateSessionRequest,
   UpdateSessionRequest,
   SetDefaultModelRequest,
@@ -179,6 +180,16 @@ export async function renameWorkspace(
   data: RenameWorkspaceRequest
 ): Promise<Workspace> {
   return request(`/workspaces/${id}/rename`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateWorkspaceIdentity(
+  id: string,
+  data: UpdateWorkspaceIdentityRequest
+): Promise<Workspace> {
+  return request(`/workspaces/${id}/identity`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });

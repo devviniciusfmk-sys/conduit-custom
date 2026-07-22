@@ -38,6 +38,8 @@ export const workspace = {
   id: workspaceId,
   repository_id: repository.id,
   name: 'Live Jade',
+  icon: '📁',
+  color: 'gray' as const,
   branch: 'main',
   path: '/tmp/live-jade',
   created_at: '2026-01-22T14:27:46.876Z',

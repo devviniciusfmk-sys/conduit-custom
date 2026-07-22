@@ -1,6 +1,7 @@
 // API types matching Rust backend
 
 export type WorkspaceMode = 'worktree' | 'checkout';
+export type WorkspaceColor = 'gray' | 'blue' | 'green' | 'orange' | 'purple' | 'red';
 
 export interface Repository {
   id: string;
@@ -21,6 +22,8 @@ export interface Workspace {
   id: string;
   repository_id: string;
   name: string;
+  icon: string;
+  color: WorkspaceColor;
   branch: string;
   path: string;
   created_at: string;
@@ -116,6 +119,12 @@ export interface CreateWorkspaceRequest {
 
 export interface RenameWorkspaceRequest {
   name: string;
+}
+
+export interface UpdateWorkspaceIdentityRequest {
+  name: string;
+  icon: string;
+  color: WorkspaceColor;
 }
 
 export interface ArchiveWorkspaceRequest {

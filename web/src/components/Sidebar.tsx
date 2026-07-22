@@ -17,7 +17,12 @@ import { cn } from '../lib/cn';
 import type { Repository, Workspace } from '../types';
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog';
 import { Logo } from './Logo';
-import { RenameWorkspaceDialog } from './RenameWorkspaceDialog';
+import { WorkspaceSettingsDialog } from './WorkspaceSettingsDialog';
+
+const workspaceColorClasses: Record<Workspace['color'], string> = {
+  gray: 'text-gray-400', blue: 'text-blue-400', green: 'text-green-400',
+  orange: 'text-orange-400', purple: 'text-purple-400', red: 'text-red-400',
+};
 
 interface WorkspaceItemProps {
   repository: Repository;
@@ -106,7 +111,10 @@ function WorkspaceItem({
 
       {/* Workspace name + status indicators second */}
       <div className="ml-5 flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-medium">{workspace.name}</span>
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium">
+          <span className={workspaceColorClasses[workspace.color]} aria-hidden="true">{workspace.icon}</span>
+          <span className="truncate">{workspace.name}</span>
+        </span>
 
         <div className="flex shrink-0 items-center gap-2 text-xs">
           {/* Git stats */}
@@ -164,8 +172,8 @@ function WorkspaceItem({
                 'flex items-center justify-center rounded p-1 text-text-muted transition-colors hover:bg-surface-elevated hover:text-text',
                 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
               )}
-              aria-label={`Rename workspace ${workspace.name}`}
-              title="Rename workspace"
+              aria-label={`Workspace settings ${workspace.name}`}
+              title="Workspace settings"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -451,7 +459,7 @@ export function Sidebar({
         />
       )}
       {renameWorkspace && (
-        <RenameWorkspaceDialog
+        <WorkspaceSettingsDialog
           workspace={renameWorkspace}
           onClose={() => setRenameWorkspace(null)}
         />

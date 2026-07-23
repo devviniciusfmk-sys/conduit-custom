@@ -92,6 +92,74 @@ impl GitDiffStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+
+    /// A repository with one commit and a repo-local identity
+    fn init_repo(path: &Path) {
+        let run = |args: &[&str]| {
+            let out = Command::new("git")
+                .args(args)
+                .current_dir(path)
+                .output()
+                .expect("git failed to run");
+            assert!(out.status.success(), "git {args:?} failed");
+        };
+        run(&["init"]);
+        run(&["config", "user.email", "test@test.com"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(path.join("a.txt"), "x").unwrap();
+        run(&["add", "--", "a.txt"]);
+        run(&["commit", "-m", "first"]);
+    }
+
+    #[test]
+    fn exposure_flags_a_repository_with_no_remote() {
+        let dir = tempdir().unwrap();
+        init_repo(dir.path());
+
+        let exposure = RepositoryExposure::inspect(dir.path());
+
+        assert!(!exposure.has_remote, "a fresh repo has no remote");
+        // With no remote, every commit exists only here
+        assert!(exposure.unpushed_commits >= 1, "{exposure:?}");
+    }
+
+    #[test]
+    fn exposure_counts_commits_missing_from_the_remote() {
+        let origin = tempdir().unwrap();
+        let clone = tempdir().unwrap();
+        init_repo(origin.path());
+
+        let clone_path = clone.path().join("work");
+        let out = Command::new("git")
+            .args(["clone"])
+            .arg(origin.path())
+            .arg(&clone_path)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "clone failed");
+
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&clone_path)
+                .output()
+                .unwrap();
+        };
+        run(&["config", "user.email", "test@test.com"]);
+        run(&["config", "user.name", "Test"]);
+
+        let fresh = RepositoryExposure::inspect(&clone_path);
+        assert!(fresh.has_remote);
+        assert_eq!(fresh.unpushed_commits, 0, "nothing local yet: {fresh:?}");
+
+        std::fs::write(clone_path.join("b.txt"), "y").unwrap();
+        run(&["add", "--", "b.txt"]);
+        run(&["commit", "-m", "local only"]);
+
+        let after = RepositoryExposure::inspect(&clone_path);
+        assert_eq!(after.unpushed_commits, 1, "{after:?}");
+    }
 
     #[test]
     fn test_parse_shortstat_full() {
@@ -147,5 +215,51 @@ mod tests {
             files_changed: 1,
         };
         assert!(with_deletions.has_changes());
+    }
+}
+
+/// What a repository would lose if its folder were deleted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepositoryExposure {
+    /// Whether any remote is configured
+    pub has_remote: bool,
+    /// Commits that exist on no remote, across every local branch
+    pub unpushed_commits: usize,
+}
+
+impl RepositoryExposure {
+    /// Inspect a repository for work that only exists locally.
+    ///
+    /// A repository with no remote has its entire history at stake; one with a
+    /// remote still loses whatever was never pushed.
+    pub fn inspect(repo_path: &Path) -> Self {
+        let has_remote = Command::new("git")
+            .args(["--no-optional-locks", "remote"])
+            .current_dir(repo_path)
+            .output()
+            .map(|o| o.status.success() && !o.stdout.is_empty())
+            .unwrap_or(false);
+
+        // Commits reachable from local branches but from no remote branch
+        let unpushed_commits = Command::new("git")
+            .args([
+                "--no-optional-locks",
+                "rev-list",
+                "--count",
+                "--branches",
+                "--not",
+                "--remotes",
+            ])
+            .current_dir(repo_path)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+            .unwrap_or(0);
+
+        Self {
+            has_remote,
+            unpushed_commits,
+        }
     }
 }

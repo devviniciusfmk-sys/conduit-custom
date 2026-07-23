@@ -230,6 +230,7 @@ interface RepositorySectionProps {
   onDeleteWorkspace?: (workspace: Workspace) => void;
   onNewWorkspace?: () => void;
   onRemoveRepository?: (repository: Repository) => void;
+  onDeleteRepository?: (repository: Repository) => void;
 }
 
 function RepositorySection({
@@ -242,8 +243,22 @@ function RepositorySection({
   onDeleteWorkspace,
   onNewWorkspace,
   onRemoveRepository,
+  onDeleteRepository,
 }: RepositorySectionProps) {
   const [expanded, setExpanded] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isMenuOpen]);
 
   return (
     <div className="mb-2">
@@ -265,22 +280,68 @@ function RepositorySection({
           <span className="truncate">{repository.name}</span>
         </button>
 
-        {onRemoveRepository && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemoveRepository(repository);
-            }}
-            className={cn(
-              'mr-2 flex items-center justify-center rounded p-1 text-text-muted transition-colors',
-              'hover:bg-surface-elevated hover:text-error',
-              'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+        {(onRemoveRepository || onDeleteRepository) && (
+          <div className="relative mr-2" ref={menuRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMenuOpen((open) => !open);
+              }}
+              className={cn(
+                'flex items-center justify-center rounded p-1 text-text-muted transition-colors',
+                'hover:bg-surface-elevated hover:text-text',
+                isMenuOpen
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+              )}
+              aria-label={`Project actions for ${repository.name}`}
+              aria-expanded={isMenuOpen}
+              title="Project actions"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+
+            {isMenuOpen && (
+              <div className="absolute right-0 top-full z-10 mt-1 w-64 overflow-hidden rounded-md border border-border bg-surface shadow-lg">
+                {onRemoveRepository && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsMenuOpen(false);
+                      onRemoveRepository(repository);
+                    }}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-text-muted transition-colors hover:bg-surface-elevated hover:text-text"
+                  >
+                    <FolderMinus className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      <span className="block">Remove from Conduit</span>
+                      <span className="block text-xs text-text-muted/70">
+                        Keeps the project folder on disk
+                      </span>
+                    </span>
+                  </button>
+                )}
+                {onDeleteRepository && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsMenuOpen(false);
+                      onDeleteRepository(repository);
+                    }}
+                    className="flex w-full items-start gap-2 border-t border-border px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                  >
+                    <Trash2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      <span className="block">Delete permanently...</span>
+                      <span className="block text-xs text-red-400/70">
+                        Deletes the project folder and all its work
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </div>
             )}
-            aria-label={`Remove project ${repository.name}`}
-            title="Remove project and archive all its workspaces (the project folder itself stays on disk)"
-          >
-            <FolderMinus className="h-3.5 w-3.5" />
-          </button>
+          </div>
         )}
       </div>
 
@@ -324,6 +385,7 @@ interface SidebarProps {
   onArchiveWorkspace?: (workspace: Workspace) => void;
   onDeleteWorkspace?: (workspace: Workspace) => void;
   onRemoveRepository?: (repository: Repository) => void;
+  onDeleteRepository?: (repository: Repository) => void;
   onAddProject?: () => void;
   onBrowseProjects?: () => void;
 }
@@ -336,6 +398,7 @@ export function Sidebar({
   onArchiveWorkspace,
   onDeleteWorkspace,
   onRemoveRepository,
+  onDeleteRepository,
   onAddProject,
   onBrowseProjects,
 }: SidebarProps) {
@@ -418,6 +481,7 @@ export function Sidebar({
                   onDeleteWorkspace={onDeleteWorkspace}
                   onRenameWorkspace={setRenameWorkspace}
                   onRemoveRepository={onRemoveRepository}
+                  onDeleteRepository={onDeleteRepository}
                   onNewWorkspace={() => handleNewWorkspace(repo)}
                 />
               ))

@@ -599,6 +599,250 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
+    /// Register a repository record pointing at `repo_path`
+    async fn seed_repository(
+        state: &WebAppState,
+        name: &str,
+        repo_path: &std::path::Path,
+    ) -> uuid::Uuid {
+        use crate::data::Repository;
+
+        let repo = Repository::from_local_path(name, repo_path.to_path_buf());
+        let id = repo.id;
+        let core = state.core().await;
+        core.repo_store().unwrap().create(&repo).unwrap();
+        id
+    }
+
+    /// POST /api/repositories/{id}/delete
+    async fn delete_project_request(
+        state: WebAppState,
+        id: uuid::Uuid,
+        body: serde_json::Value,
+    ) -> (StatusCode, serde_json::Value) {
+        let app = build_router(state, true);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/repositories/{id}/delete"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_removes_folder_workspaces_and_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("my-project");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_repo_with_commit(&repo_path);
+
+        let state = test_state();
+        let (workspace_id, worktree_path) =
+            seed_workspace_with_worktree(&state, &repo_path, dir.path().join("worktrees")).await;
+        // seed_workspace_with_worktree registers its own repository record; use it
+        let repo_id = {
+            let core = state.core().await;
+            core.workspace_store()
+                .unwrap()
+                .get_by_id(workspace_id)
+                .unwrap()
+                .unwrap()
+                .repository_id
+        };
+
+        let (status, json) = delete_project_request(
+            state.clone(),
+            repo_id,
+            serde_json::json!({ "confirm_name": "test-repo", "permanent": true }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "{json}");
+        assert!(!repo_path.exists(), "project folder survived");
+        assert!(!worktree_path.exists(), "worktree survived");
+
+        let core = state.core().await;
+        assert!(core
+            .repo_store()
+            .unwrap()
+            .get_by_id(repo_id)
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_rejects_a_wrong_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("my-project");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_repo_with_commit(&repo_path);
+
+        let state = test_state();
+        let repo_id = seed_repository(&state, "my-project", &repo_path).await;
+
+        let (status, _) = delete_project_request(
+            state.clone(),
+            repo_id,
+            serde_json::json!({ "confirm_name": "my-projekt", "permanent": true }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(repo_path.exists(), "a rejected delete must touch nothing");
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_refuses_a_folder_without_git() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().join("not-a-repo");
+        std::fs::create_dir(&plain).unwrap();
+        std::fs::write(plain.join("important.txt"), "keep me").unwrap();
+
+        let state = test_state();
+        let repo_id = seed_repository(&state, "not-a-repo", &plain).await;
+
+        let (status, json) = delete_project_request(
+            state.clone(),
+            repo_id,
+            serde_json::json!({ "confirm_name": "not-a-repo", "permanent": true }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert!(plain.join("important.txt").exists(), "files were destroyed");
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_refuses_when_it_contains_another_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let outer = dir.path().join("outer");
+        std::fs::create_dir(&outer).unwrap();
+        init_repo_with_commit(&outer);
+        let inner = outer.join("inner");
+        std::fs::create_dir(&inner).unwrap();
+        init_repo_with_commit(&inner);
+
+        let state = test_state();
+        let outer_id = seed_repository(&state, "outer", &outer).await;
+        seed_repository(&state, "inner", &inner).await;
+
+        let (status, json) = delete_project_request(
+            state.clone(),
+            outer_id,
+            serde_json::json!({ "confirm_name": "outer", "permanent": true }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert!(
+            outer.exists() && inner.exists(),
+            "nested project was destroyed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_without_permanent_never_escalates_silently() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("trash-me");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_repo_with_commit(&repo_path);
+
+        let state = test_state();
+        let repo_id = seed_repository(&state, "trash-me", &repo_path).await;
+
+        // Ask the preflight whether this machine has a working trash, so the
+        // test never moves a folder into the developer's real trash bin.
+        let app = build_router(state.clone(), true);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/repositories/{repo_id}/delete/preflight"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let preflight: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        if preflight["trash_available"].as_bool() == Some(true) {
+            // Deleting here would really work, and really fill the trash, so
+            // stop at having proven the capability is reported.
+            assert!(repo_path.exists());
+            return;
+        }
+
+        // No trash: the request must be refused with nothing destroyed, never
+        // quietly turned into an erase.
+        let (status, json) = delete_project_request(
+            state.clone(),
+            repo_id,
+            serde_json::json!({ "confirm_name": "trash-me" }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::CONFLICT, "{json}");
+        assert!(repo_path.exists(), "folder was destroyed despite refusal");
+        assert!(
+            json["details"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("trash"),
+            "{json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_project_preflight_flags_work_that_exists_nowhere_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_path = dir.path().join("lonely");
+        std::fs::create_dir(&repo_path).unwrap();
+        init_repo_with_commit(&repo_path);
+
+        let state = test_state();
+        let repo_id = seed_repository(&state, "lonely", &repo_path).await;
+
+        let app = build_router(state, true);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/repositories/{repo_id}/delete/preflight"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["repository_name"].as_str(), Some("lonely"));
+        assert_eq!(json["has_remote"].as_bool(), Some(false), "{json}");
+        assert!(json["unpushed_commits"].as_u64().unwrap() >= 1, "{json}");
+        assert!(json["blocked_reason"].is_null(), "{json}");
+        assert!(
+            json["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|w| w.as_str().unwrap_or_default().contains("No remote")),
+            "{json}"
+        );
+        // The folder must still be there: a preflight inspects, never destroys
+        assert!(repo_path.exists());
+    }
+
     /// POST /api/onboarding/create-project with the given body
     async fn create_project_request(body: serde_json::Value) -> (StatusCode, serde_json::Value) {
         let state = test_state();

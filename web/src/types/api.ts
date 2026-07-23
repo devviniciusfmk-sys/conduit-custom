@@ -50,6 +50,33 @@ export interface DeleteWorkspaceResponse {
   warnings: string[];
 }
 
+export interface RepositoryDeletePreflightResponse {
+  /** The name the user must type to confirm */
+  repository_name: string;
+  /** Canonical folder that would be deleted */
+  project_path: string | null;
+  workspace_count: number;
+  has_remote: boolean;
+  unpushed_commits: number;
+  nested_projects: string[];
+  /** Set when deletion is refused outright */
+  blocked_reason: string | null;
+  /** Whether the folder can go to the system trash instead of being erased */
+  trash_available: boolean;
+  warnings: string[];
+  severity: 'info' | 'warning' | 'danger';
+}
+
+export interface DeleteProjectRequest {
+  confirm_name: string;
+  permanent?: boolean;
+}
+
+export interface DeleteProjectResponse {
+  moved_to_trash: boolean;
+  warnings: string[];
+}
+
 export interface RepositoryRemovePreflightResponse {
   repository_name: string;
   workspace_count: number;

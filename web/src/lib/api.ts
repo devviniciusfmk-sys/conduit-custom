@@ -38,6 +38,9 @@ import type {
   PrCreateResponse,
   ArchivePreflightResponse,
   DeleteWorkspaceResponse,
+  RepositoryDeletePreflightResponse,
+  DeleteProjectRequest,
+  DeleteProjectResponse,
   ArchiveWorkspaceRequest,
   RepositoryRemovePreflightResponse,
   RepositoryRemoveResponse,
@@ -143,9 +146,6 @@ export async function updateRepositorySettings(
   });
 }
 
-export async function deleteRepository(id: string): Promise<void> {
-  await request(`/repositories/${id}`, { method: 'DELETE' });
-}
 
 export async function getRepositoryRemovePreflight(id: string): Promise<RepositoryRemovePreflightResponse> {
   return request(`/repositories/${id}/remove/preflight`);
@@ -153,6 +153,23 @@ export async function getRepositoryRemovePreflight(id: string): Promise<Reposito
 
 export async function removeRepository(id: string): Promise<RepositoryRemoveResponse> {
   return request(`/repositories/${id}/remove`, { method: 'POST' });
+}
+
+export async function getRepositoryDeletePreflight(
+  id: string
+): Promise<RepositoryDeletePreflightResponse> {
+  return request(`/repositories/${id}/delete/preflight`);
+}
+
+/** Deletes the project folder itself. There is no undo beyond the system trash. */
+export async function deleteRepositoryPermanently(
+  id: string,
+  data: DeleteProjectRequest
+): Promise<DeleteProjectResponse> {
+  return request(`/repositories/${id}/delete`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 // Workspaces

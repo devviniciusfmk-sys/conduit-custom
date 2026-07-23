@@ -10,6 +10,7 @@ import {
   CreateWorkspaceDialog,
   ConfirmDialog,
 } from './components';
+import { DeleteProjectDialog } from './components/DeleteProjectDialog';
 import { CommandPalette, type CommandPaletteItem } from './components/CommandPalette';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SessionImportDialog } from './components/SessionImportDialog';
@@ -38,6 +39,8 @@ import {
   useAutoCreateWorkspace,
   useRepositoryRemovePreflight,
   useRemoveRepository,
+  useRepositoryDeletePreflight,
+  useDeleteRepositoryPermanently,
   useUpdateRepositorySettings,
   useWorkspaceActions,
   useUpdateSession,
@@ -176,6 +179,9 @@ function AppContent() {
   const [archiveRemotePromptTarget, setArchiveRemotePromptTarget] = useState<Workspace | null>(null);
   const [deleteWorkspaceTarget, setDeleteWorkspaceTarget] = useState<Workspace | null>(null);
   const [removeRepositoryTarget, setRemoveRepositoryTarget] = useState<Repository | null>(null);
+  const [deleteRepositoryTarget, setDeleteRepositoryTarget] = useState<Repository | null>(null);
+  // Set when the server refused because this machine has no working trash
+  const [deleteRequiresPermanent, setDeleteRequiresPermanent] = useState(false);
   const [fileViewerTabs, setFileViewerTabs] = useState<FileViewerTab[]>([]);
   const [activeFileViewerId, setActiveFileViewerId] = useState<string | null>(null);
   const previousActiveSessionId = useRef<string | null>(null);
@@ -218,6 +224,11 @@ function AppContent() {
   const { data: archivePreflight } = useWorkspaceArchivePreflight(
     archiveWorkspaceTarget?.id ?? null,
     { enabled: !!archiveWorkspaceTarget }
+  );
+  const deleteRepositoryPermanently = useDeleteRepositoryPermanently();
+  const { data: repositoryDeletePreflight } = useRepositoryDeletePreflight(
+    deleteRepositoryTarget?.id ?? null,
+    { enabled: !!deleteRepositoryTarget }
   );
   const { data: deletePreflight } = useWorkspaceDeletePreflight(
     deleteWorkspaceTarget?.id ?? null,
@@ -600,6 +611,39 @@ function AppContent() {
 
   const handleRemoveRepository = (repository: Repository) => {
     setRemoveRepositoryTarget(repository);
+  };
+
+  const handleDeleteRepository = (repository: Repository) => {
+    deleteRepositoryPermanently.reset();
+    setDeleteRequiresPermanent(false);
+    setDeleteRepositoryTarget(repository);
+  };
+
+  const handleConfirmDeleteRepository = (permanent: boolean) => {
+    const repository = deleteRepositoryTarget;
+    if (!repository) return;
+
+    const affectedWorkspaceIds = resolvedWorkspaces
+      .filter((ws) => ws.repository_id === repository.id)
+      .map((ws) => ws.id);
+
+    deleteRepositoryPermanently.mutate(
+      { id: repository.id, confirmName: repository.name, permanent },
+      {
+        onSuccess: () => {
+          affectedWorkspaceIds.forEach(cleanupAfterWorkspaceRemoval);
+          setDeleteRepositoryTarget(null);
+          setDeleteRequiresPermanent(false);
+        },
+        onError: (error) => {
+          // The server refuses rather than silently erasing when the trash is
+          // unavailable; offer that as an explicit second choice.
+          if (error instanceof Error && error.message.toLowerCase().includes('trash')) {
+            setDeleteRequiresPermanent(true);
+          }
+        },
+      }
+    );
   };
 
   const handleConfirmRemoveRepository = () => {
@@ -1059,6 +1103,7 @@ function AppContent() {
         onArchiveWorkspace={handleArchiveWorkspace}
         onDeleteWorkspace={handleDeleteWorkspace}
         onRemoveRepository={handleRemoveRepository}
+        onDeleteRepository={handleDeleteRepository}
         onAddProject={handleAddProject}
         onBrowseProjects={handleBrowseProjects}
         sessions={orderedSessions}
@@ -1212,6 +1257,23 @@ function AppContent() {
         }
         isPending={deleteWorkspace.isPending}
         confirmVariant="danger"
+      />
+      <DeleteProjectDialog
+        key={deleteRepositoryTarget?.id ?? 'none'}
+        repository={deleteRepositoryTarget}
+        preflight={repositoryDeletePreflight}
+        isPending={deleteRepositoryPermanently.isPending}
+        requiresPermanent={deleteRequiresPermanent}
+        error={
+          deleteRepositoryPermanently.error instanceof Error
+            ? deleteRepositoryPermanently.error.message
+            : null
+        }
+        onConfirm={handleConfirmDeleteRepository}
+        onClose={() => {
+          setDeleteRepositoryTarget(null);
+          setDeleteRequiresPermanent(false);
+        }}
       />
       <ConfirmDialog
         isOpen={!!removeRepositoryTarget}

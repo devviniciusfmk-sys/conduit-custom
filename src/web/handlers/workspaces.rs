@@ -510,11 +510,11 @@ pub struct DeleteWorkspaceResponse {
 
 /// Which branches to delete alongside a workspace's worktree
 #[derive(Debug, Clone, Copy)]
-struct TeardownOptions {
+pub(super) struct TeardownOptions {
     /// Delete the local branch
-    local_branch: bool,
+    pub(super) local_branch: bool,
     /// Delete the branch on the remote
-    remote_branch: bool,
+    pub(super) remote_branch: bool,
 }
 
 /// Remove a workspace's worktree (and optionally its branches) from disk
@@ -522,7 +522,7 @@ struct TeardownOptions {
 /// Collects problems as warnings instead of failing: the database side must
 /// still run, otherwise a half-removed workspace would linger in the sidebar
 /// with no way to retry.
-fn teardown_workspace_on_disk(
+pub(super) fn teardown_workspace_on_disk(
     worktree_manager: &crate::git::WorkspaceRepoManager,
     mode: crate::git::WorkspaceMode,
     base_path: &std::path::Path,

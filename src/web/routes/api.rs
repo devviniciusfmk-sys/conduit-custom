@@ -24,16 +24,22 @@ pub fn api_routes() -> Router<WebAppState> {
             patch(repositories::update_repository_settings),
         )
         .route(
-            "/repositories/{id}",
-            delete(repositories::delete_repository),
-        )
-        .route(
             "/repositories/{id}/remove/preflight",
             get(repositories::get_repository_remove_preflight),
         )
         .route(
             "/repositories/{id}/remove",
             post(repositories::remove_repository),
+        )
+        // Permanent deletion: folder included. Separate from /remove on
+        // purpose - the two must never be reachable by the same click.
+        .route(
+            "/repositories/{id}/delete/preflight",
+            get(repositories::get_repository_delete_preflight),
+        )
+        .route(
+            "/repositories/{id}/delete",
+            post(repositories::delete_repository_permanently),
         )
         // Repository workspaces routes
         .route(

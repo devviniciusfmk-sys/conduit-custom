@@ -35,6 +35,7 @@ export const queryKeys = {
   workspaceStatus: (id: string) => ['workspaces', id, 'status'] as const,
   workspaceArchivePreflight: (id: string) => ['workspaces', id, 'archive-preflight'] as const,
   workspaceDeletePreflight: (id: string) => ['workspaces', id, 'delete-preflight'] as const,
+  repositoryDeletePreflight: (id: string) => ['repositories', id, 'delete-preflight'] as const,
   workspacePrPreflight: (id: string) => ['workspaces', id, 'pr-preflight'] as const,
   workspaceSession: (id: string) => ['workspaces', id, 'session'] as const,
   workspaceFileContent: (workspaceId: string, filePath: string) =>
@@ -136,12 +137,31 @@ export function useUpdateRepositorySettings() {
   });
 }
 
-export function useDeleteRepository() {
+export function useRepositoryDeletePreflight(
+  repositoryId: string | null,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.repositoryDeletePreflight(repositoryId ?? ''),
+    queryFn: () => api.getRepositoryDeletePreflight(repositoryId!),
+    enabled: (options?.enabled ?? true) && !!repositoryId,
+    // Always ask again: it reports what would be lost right now
+    staleTime: 0,
+  });
+}
+
+export function useDeleteRepositoryPermanently() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.deleteRepository(id),
+    mutationFn: (payload: { id: string; confirmName: string; permanent: boolean }) =>
+      api.deleteRepositoryPermanently(payload.id, {
+        confirm_name: payload.confirmName,
+        permanent: payload.permanent,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories });
+      queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     },
   });
 }
